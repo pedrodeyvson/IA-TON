@@ -41,7 +41,27 @@ test("resolverTelefoneReal devolve vazio quando só há LID", () => {
   assert.equal(r.jid, null);
 });
 
-test("resolverTelefoneReal não estoura em payload circular ou profundo", () => {
-  const profundo: any = { a: { b: { c: { d: { e: { f: { g: "5511987654321@s.whatsapp.net" } } } } } } };
-  assert.doesNotThrow(() => resolverTelefoneReal(profundo, {}));
+test("resolverTelefoneReal não estoura com payload circular", () => {
+  const circular: any = { nivel: 1 };
+  circular.self = circular;
+  circular.telefone = "5511987654321@s.whatsapp.net";
+  const r = resolverTelefoneReal(circular, {});
+  assert.equal(r.telefone, "5511987654321");
+});
+
+test("resolverTelefoneReal encontra telefone em profundidade alcançável", () => {
+  // Telefone aninhado em profundidade 4 (dentro do PROFUNDIDADE_MAXIMA = 5)
+  const profundo: any = {
+    a: {
+      b: {
+        c: {
+          d: {
+            numero: "5511987654321@s.whatsapp.net"
+          }
+        }
+      }
+    }
+  };
+  const r = resolverTelefoneReal(profundo, {});
+  assert.equal(r.telefone, "5511987654321");
 });
