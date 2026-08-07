@@ -10,14 +10,9 @@ function baseUrl(): string {
 
 export async function uazapiFetch(
   path: string,
-  opts: { token?: string; admin?: boolean; method?: string; body?: unknown } = {},
+  opts: { token?: string; method?: string; body?: unknown } = {},
 ): Promise<any> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.admin) {
-    const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
-    if (!adminToken) throw new Error("UAZAPI_ADMIN_TOKEN não configurado");
-    headers.admintoken = adminToken;
-  }
   if (opts.token) headers.token = opts.token;
 
   const resposta = await fetch(`${baseUrl()}${path}`, {
@@ -49,6 +44,13 @@ export async function baixarMensagem(token: string, messageId: string) {
   return uazapiFetch("/message/download", { token, body: { id: messageId } });
 }
 
-export async function definirWebhookGlobal(url: string, eventos: string[]) {
-  return uazapiFetch("/webhook", { admin: true, body: { url, events: eventos, enabled: true } });
-}
+// NUNCA usar webhook global (endpoint /webhook com admintoken): o servidor
+// UAZAPI é compartilhado com outras instâncias de outro projeto, e um webhook
+// nesse nível afetaria todas elas, não só a nossa. Removido de propósito —
+// decisão do dono do projeto.
+//
+// A UAZAPI expõe configuração de webhook por instância (com o header `token`,
+// sem `admintoken`), mas o endpoint exato não está confirmado aqui sem
+// consultar a documentação da instância contratada — por isso não foi
+// reimplementado às cegas. Por ora o webhook desta instância é configurado
+// manualmente no painel da UAZAPI.

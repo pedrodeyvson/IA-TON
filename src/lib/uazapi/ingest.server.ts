@@ -4,6 +4,7 @@ import { resolverTelefoneReal } from "./identidade.ts";
 import { extrairAtribuicaoAnuncio } from "./anuncio.ts";
 import { normalizarTelefoneBr } from "../telefone.ts";
 import { sanitizarSegmentoPath } from "./sanitizar-path.ts";
+import { deveIgnorarRemoteJid } from "./filtro-remetente.ts";
 
 export type ResultadoIngest = {
   status: "ok" | "duplicate" | "ignored" | "error";
@@ -155,6 +156,11 @@ async function acharOuCriarLead(
 }
 
 async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> {
+  // Leads são inbound 1:1 — grupo (@g.us), status (status@broadcast) e canal
+  // (@newsletter) nunca viram lead, mesmo que a varredura recursiva de
+  // identidade encontre o telefone de um participante lá dentro.
+  if (deveIgnorarRemoteJid(item?.key?.remoteJid)) return { status: "ignored" };
+
   const msg = classificarMensagem(item);
 
   // Idempotência camada 1: pré-check antes de qualquer trabalho.
@@ -189,23 +195,26 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
         const { error: erroUpload } = await admin.storage
           .from(BUCKET_MIDIA)
           .upload(candidatoPath, midia.bytes, { contentType: midia.mime, upsert: true });
-        if (!erroUpload) mediaPath = candidatoPath;
-      } catch {
+        if (erroUpload) {
+          console.warn(`[ingest] falha ao enviar mídia para o Storage (${candidatoPath}): ${erroUpload.message}`);
+        } else {
+          mediaPath = candidatoPath;
+        }
+      } catch (err: any) {
+        console.warn(`[ingest] exceção ao enviar mídia para o Storage (${candidatoPath}): ${err?.message ?? err}`);
         mediaPath = null;
       }
 
       if (msg.tipo === "audio") {
-        if (mediaPath) {
-          const { transcreverDoStorage } = await import("../groq-transcribe.server.ts");
-          const r = await transcreverDoStorage(admin, BUCKET_MIDIA, mediaPath, midia.mime, "pt");
-          if (r.ok) { transcricao = r.texto; transcricaoStatus = "ok"; }
-          else { transcricaoStatus = "failed"; }
-        } else {
-          // Upload falhou (ou lançou) — sem arquivo no Storage não há o que
-          // transcrever. "failed" distingue esse caso de "não é áudio"
-          // (que fica null), em vez de deixar a coluna ambígua.
-          transcricaoStatus = "failed";
-        }
+        // Transcreve direto dos bytes já em memória (midia.bytes) — evita
+        // reabrir do Storage o arquivo que acabou de ser enviado (round-trip
+        // de rede redundante e uma superfície de falha a mais). Por isso não
+        // depende de `mediaPath`/do upload ter dado certo: mesmo que o
+        // upload falhe, a transcrição ainda é tentada com os bytes em mãos.
+        const { transcreverAudio } = await import("../groq-transcribe.server.ts");
+        const r = await transcreverAudio(midia.bytes, midia.mime, { idioma: "pt" });
+        if (r.ok) { transcricao = r.texto; transcricaoStatus = "ok"; }
+        else { transcricaoStatus = "failed"; }
       }
     }
   }

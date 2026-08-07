@@ -50,8 +50,16 @@ export function resolverTelefoneReal(
     ...coletarCandidatos(dados),
   ];
 
+  let primeiroLid: string | null = null;
+
   for (const candidato of candidatos) {
-    if (!candidato || typeof candidato !== "string" || ehLid(candidato)) continue;
+    if (!candidato || typeof candidato !== "string") continue;
+    if (ehLid(candidato)) {
+      // Guarda o primeiro @lid encontrado: se nenhum telefone real aparecer,
+      // é nele que o lead será ancorado — em vez de descartado.
+      if (!primeiroLid) primeiroLid = candidato;
+      continue;
+    }
     const telefone = candidato.includes("@")
       ? extrairTelefoneDeJid(candidato)
       : normalizarCandidato(candidato);
@@ -59,5 +67,5 @@ export function resolverTelefoneReal(
       return { telefone, jid: candidato.includes("@") ? candidato : `${telefone}@s.whatsapp.net` };
     }
   }
-  return { telefone: "", jid: null };
+  return { telefone: "", jid: primeiroLid };
 }

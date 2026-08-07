@@ -35,8 +35,14 @@ test("resolverTelefoneReal encontra telefone aninhado no payload", () => {
   assert.equal(r.telefone, "5531988776655");
 });
 
-test("resolverTelefoneReal devolve vazio quando só há LID", () => {
+test("resolverTelefoneReal ancora no LID quando não há telefone real", () => {
   const r = resolverTelefoneReal({}, { remoteJid: "264081359843075@lid" });
+  assert.equal(r.telefone, "");
+  assert.equal(r.jid, "264081359843075@lid");
+});
+
+test("resolverTelefoneReal devolve jid null quando não há nem telefone nem lid", () => {
+  const r = resolverTelefoneReal({}, {});
   assert.equal(r.telefone, "");
   assert.equal(r.jid, null);
 });
