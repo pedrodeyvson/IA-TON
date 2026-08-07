@@ -1,0 +1,30 @@
+# Dependências e build local (reinstalados/rebuildados dentro da imagem)
+node_modules
+dist
+.output
+.nitro
+.tanstack
+
+# Controle de versão e metadados de IDE/agentes
+.git
+.gitignore
+.superpowers
+.claude
+.vscode
+
+# Segredos — NUNCA devem entrar na imagem
+.env
+.env.local
+.env.*.local
+
+# Docs, specs e scripts que não são necessários para rodar o app
+docs
+scripts
+supabase
+README.md
+
+# Diversos
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
