@@ -209,6 +209,30 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     }
   }
 
+  // Self-healing: retenta qualquer evento CAPI que tenha ficado pendente de
+  // uma etapa anterior, a cada mensagem nova do lead — não depende de uma
+  // transição de estágio acontecer agora. Best-effort, mesmo princípio do
+  // LeadSubmitted acima.
+  try {
+    const { sincronizarEventosCapi } = await import("../capi/capi.server.ts");
+    const leadAtual = await admin
+      .from("leads")
+      .select("estagio, ctwa_clid, ad_source_id, telefone, nome, comissao_estimada")
+      .eq("id", alvo.leadId)
+      .maybeSingle();
+    if (leadAtual.data) {
+      await sincronizarEventosCapi(admin, alvo.leadId, leadAtual.data.estagio, {
+        ctwaClid: leadAtual.data.ctwa_clid,
+        adSourceId: leadAtual.data.ad_source_id,
+        telefone: leadAtual.data.telefone,
+        nome: leadAtual.data.nome,
+        comissaoEstimada: leadAtual.data.comissao_estimada,
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[ingest] self-healing de CAPI falhou para lead ${alvo.leadId}:`, err?.message ?? err);
+  }
+
   let mediaPath: string | null = null;
   let transcricao: string | null = null;
   let transcricaoStatus: string | null = null;

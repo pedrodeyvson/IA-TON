@@ -3,6 +3,25 @@
 // deixa o módulo testável sem HTTP e usável tanto pelo agente quanto pelas
 // createServerFn que virão na Fatia 4.
 import { camposDeTransicao, type Estagio } from "./estagios.ts";
+import type { DadosParaSincronizar } from "../capi/capi.server.ts";
+
+/** Assinatura de `sincronizarEventosCapi` — só o tipo, sem importar o módulo
+ *  estaticamente (ver `moverEstagio`, que carrega `capi.server.ts` por
+ *  import dinâmico). */
+type FuncaoSincronizarCapi = (
+  admin: any,
+  leadId: string,
+  estagioAtual: string,
+  dados: DadosParaSincronizar,
+) => Promise<void>;
+
+export type DepsMoverEstagio = {
+  /** Injeção de dependência opcional, só para teste (espião). Em produção
+   *  nunca é passado — moverEstagio resolve via import dinâmico de
+   *  capi.server.ts, o que mantém esse módulo (e o fetch para a Meta que ele
+   *  carrega transitivamente) fora do bundle de quem só lê/edita leads. */
+  sincronizarCapi?: FuncaoSincronizarCapi;
+};
 
 export async function obterLead(admin: any, leadId: string): Promise<any | null> {
   const { data } = await admin.from("leads").select("*").eq("id", leadId).maybeSingle();
@@ -48,6 +67,7 @@ export async function moverEstagio(
   leadId: string,
   para: Estagio,
   detalheExtra: Record<string, unknown> = {},
+  deps: DepsMoverEstagio = {},
 ): Promise<boolean> {
   const lead = await obterLead(admin, leadId);
   if (!lead) return false;
@@ -58,6 +78,25 @@ export async function moverEstagio(
 
   await admin.from("leads").update(campos).eq("id", leadId);
   await registrarEvento(admin, leadId, "mudou_estagio", { de, para, ...detalheExtra });
+
+  // Alimenta o Meta Ads a cada avanço de estágio — best-effort, nunca pode
+  // custar a transição que já foi gravada acima. Se falhar aqui, o
+  // self-healing no ingest.server.ts tenta de novo na próxima mensagem do
+  // lead.
+  try {
+    const sincronizarCapi =
+      deps.sincronizarCapi ?? (await import("../capi/capi.server.ts")).sincronizarEventosCapi;
+    await sincronizarCapi(admin, leadId, para, {
+      ctwaClid: lead.ctwa_clid,
+      adSourceId: lead.ad_source_id,
+      telefone: lead.telefone,
+      nome: lead.nome,
+      comissaoEstimada: lead.comissao_estimada,
+    });
+  } catch (err: any) {
+    console.warn(`[crm] falha ao sincronizar CAPI do lead ${leadId}:`, err?.message ?? err);
+  }
+
   return true;
 }
 
