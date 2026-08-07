@@ -10,6 +10,27 @@ export type ResultadoIngest = {
   error?: string;
 };
 
+// Busca o lead por telefone_normalizado (prioridade) e, na falta, por external_id.
+// Extraída para ser reaproveitada tanto na busca inicial quanto na recuperação
+// de corrida (23505) abaixo — os dois precisam do mesmo critério de busca.
+async function buscarLeadExistente(
+  admin: any,
+  normalizado: string,
+  externalId: string | null,
+): Promise<string | null> {
+  if (normalizado) {
+    const { data } = await admin
+      .from("leads").select("id").eq("telefone_normalizado", normalizado).limit(1);
+    if (data?.[0]?.id) return data[0].id;
+  }
+  if (externalId) {
+    const { data } = await admin
+      .from("leads").select("id").eq("external_id", externalId).limit(1);
+    if (data?.[0]?.id) return data[0].id;
+  }
+  return null;
+}
+
 async function acharOuCriarLead(
   admin: any,
   item: any,
@@ -23,18 +44,7 @@ async function acharOuCriarLead(
   const externalId = !normalizado && jid ? `wa-jid:${jid}` : null;
   if (!normalizado && !externalId) return null;
 
-  let leadId: string | null = null;
-
-  if (normalizado) {
-    const { data } = await admin
-      .from("leads").select("id").eq("telefone_normalizado", normalizado).limit(1);
-    leadId = data?.[0]?.id ?? null;
-  }
-  if (!leadId && externalId) {
-    const { data } = await admin
-      .from("leads").select("id").eq("external_id", externalId).limit(1);
-    leadId = data?.[0]?.id ?? null;
-  }
+  let leadId = await buscarLeadExistente(admin, normalizado, externalId);
 
   if (!leadId) {
     const { data, error } = await admin.from("leads").insert({
@@ -50,12 +60,24 @@ async function acharOuCriarLead(
       ctwa_clid: atribuicao?.ctwaClid ?? null,
       ad_referral_raw: atribuicao?.referralRaw ?? null,
     }).select("id").single();
-    if (error) throw new Error(error.message);
-    leadId = data.id;
+
+    if (error) {
+      // Idempotência de lead: select-depois-insert não é atômico. Se
+      // `telefone_normalizado` ou `external_id` colidiu, foi porque um webhook
+      // concorrente inseriu o mesmo lead entre o select acima e este insert —
+      // corrida perdida, não erro real. Re-busca e segue com o lead do vencedor,
+      // igual `ingerirMensagem` já faz para `provider_message_id`.
+      if ((error as any).code === "23505") {
+        leadId = await buscarLeadExistente(admin, normalizado, externalId);
+      }
+      if (!leadId) throw new Error(error.message);
+    } else {
+      leadId = data.id;
+    }
   } else if (atribuicao) {
     // Lead conhecido clicou num anúncio: registra a atribuição mais recente sem
     // sobrescrever com null caso ela venha incompleta.
-    await admin.from("leads").update({
+    const { error: erroAtribuicao } = await admin.from("leads").update({
       ad_source_id: atribuicao.adSourceId,
       ad_source_url: atribuicao.adSourceUrl,
       ad_title: atribuicao.adTitle,
@@ -64,6 +86,15 @@ async function acharOuCriarLead(
       ctwa_clid: atribuicao.ctwaClid,
       ad_referral_raw: atribuicao.referralRaw,
     }).eq("id", leadId).is("ad_source_id", null);
+
+    if (erroAtribuicao) {
+      // Não derruba o processamento da mensagem por causa do enriquecimento —
+      // mas perder a atribuição de anúncio em silêncio quebra o vínculo entre
+      // comissão e anúncio, então precisa ficar visível para diagnóstico.
+      console.warn(
+        `[ingest] falha ao gravar atribuição de anúncio no lead ${leadId}: ${erroAtribuicao.message}`,
+      );
+    }
   }
 
   const { data: conversaExistente } = await admin
@@ -72,7 +103,21 @@ async function acharOuCriarLead(
 
   const { data: novaConversa, error: erroConversa } = await admin
     .from("conversas").insert({ lead_id: leadId }).select("id").single();
-  if (erroConversa) throw new Error(erroConversa.message);
+
+  if (erroConversa) {
+    // Mesma corrida, agora em `conversas` (lead_id é único: 1 conversa por
+    // lead). Se outro webhook concorrente já criou a conversa deste lead entre
+    // o select acima e este insert, re-busca em vez de estourar.
+    if ((erroConversa as any).code === "23505") {
+      const { data: conversaConcorrente } = await admin
+        .from("conversas").select("id").eq("lead_id", leadId).maybeSingle();
+      if (conversaConcorrente?.id) {
+        return { leadId: leadId!, conversaId: conversaConcorrente.id };
+      }
+    }
+    throw new Error(erroConversa.message);
+  }
+
   return { leadId: leadId!, conversaId: novaConversa.id };
 }
 
