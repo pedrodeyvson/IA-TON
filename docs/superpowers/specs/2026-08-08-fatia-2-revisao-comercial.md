@@ -192,7 +192,7 @@ Os eventos são os **padrão do Meta Ads**, definidos pelo dono:
 
 | Estágio interno | Coluna do Kanban | Evento na Meta |
 |---|---|---|
-| `novo` | **Novo** | `Lead` |
+| `novo` | **Novo** | `LeadSubmitted` |
 | `qualificando` | Novo | — (ainda não qualificou) |
 | `apresentando_solucao` | **Qualificado** | `AddToCart` |
 | `contornando_objecao` | Qualificado | `AddToCart` *(dedup: não reenvia)* |
@@ -201,13 +201,45 @@ Os eventos são os **padrão do Meta Ads**, definidos pelo dono:
 | `convertido` | **Venda** | `Purchase` |
 | `perdido` | fora do Kanban | — |
 
+> **Por que `LeadSubmitted` e não `Lead`.** O dono pediu o evento padrão `Lead` na coluna
+> Novo. **A Meta o recusa em `action_source: "business_messaging"`** — o CPI documenta o erro
+> *"Invalid parameter"* em `src/lib/meta-capi.constants.ts:4-5` e mantém um teste de guarda
+> (`meta-capi.constants.test.ts:108-118`) para ninguém tentar de novo. `LeadSubmitted` é nome
+> custom aceito nesse canal, é o que o CPI dispara em produção e o que o TON já faz. Decisão
+> revista pelo dono à luz da evidência. As outras três colunas ficam como ele pediu.
+
 O disparo acontece dentro de `moverEstagio`, não espalhado pelo código: uma transição, um
 evento, um lugar só.
 
 **Migração necessária:** o check de `eventos_capi.nome_evento` hoje aceita
 `('LeadSubmitted','QualifiedLead','InitiateCheckout','Purchase')`. Precisa passar a aceitar
-`('Lead','AddToCart','InitiateCheckout','Purchase')`, e o `LeadSubmitted` que o
-`ingest.server.ts` dispara hoje vira `Lead`.
+`('LeadSubmitted','AddToCart','InitiateCheckout','Purchase')` — só `QualifiedLead` sai. O
+`ingest.server.ts` continua disparando `LeadSubmitted`, sem mudança.
+
+### As três lacunas reais, achadas comparando com o CPI
+
+O estudo `docs/conhecimento/capi-replicacao-cpi.md` mostrou que o que eu chamei de
+"encanamento pronto" está pronto **e desconectado**:
+
+1. **A cascata está ligada a nada.** `eventosParaDisparar` existe e está testada, mas é
+   **código morto**: `moverEstagio` nunca chama o CAPI. Hoje só o `LeadSubmitted` do ingest
+   dispara. É a lacuna que esta fatia fecha.
+2. **`Purchase` sem `value`/`currency`.** O parâmetro existe na função e nunca é passado —
+   a Meta recebe a venda sem saber quanto vale. Entra a comissão estimada em BRL.
+3. **Sem self-healing.** O TON só tenta disparar em lead novo; o CPI retenta a cada mensagem
+   nova enquanto houver evento pendente. Um disparo que falha no TON fica órfão para sempre.
+
+### Bugs do CPI que NÃO devem ser replicados
+
+O estudo catalogou defeitos reais na referência — replicar às cegas os traria junto:
+
+- **`clearFireAfter` roda mesmo com evento `ok: false`, e nada reagenda.** Um `Purchase` que
+  falha no CPI nunca mais sai. No TON, só limpe o agendamento após sucesso confirmado.
+- `CAPI_AVAILABLE_EVENTS` omite `LeadSubmitted`, então o teste de guarda não valida o evento
+  mais disparado de todos.
+- Colunas `capi_qualified_event_id` / `capi_purchase_event_id` mortas.
+- Migration de cron manda `apikey` enquanto a rota exige `x-hooks-secret` desde 04/08 —
+  drift, com chave commitada no SQL.
 
 **Risco levantado e resolvido pela pesquisa da própria Fatia 1.** Cheguei a marcar `AddToCart`
 como não confirmado em `business_messaging`; o relatório
