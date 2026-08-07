@@ -1,0 +1,26 @@
+{
+  "EventType": "messages",
+  "instanceName": "ton-consultor",
+  "message": {
+    "messageid": "3EB0AA11BB22CC33DD44",
+    "fromMe": false,
+    "messageTimestamp": 1754582500,
+    "key": { "remoteJid": "5521999887766@s.whatsapp.net", "id": "3EB0AA11BB22CC33DD44" },
+    "content": {
+      "conversation": "Vi o anúncio, quero saber mais",
+      "contextInfo": {
+        "conversionSource": "FB_Ads",
+        "entryPointConversionSource": "ctwa_ad",
+        "entryPointConversionApp": "facebook",
+        "externalAdReply": {
+          "title": "Maquininha Ton a partir de R$ 12x",
+          "body": "Peça a sua hoje",
+          "sourceType": "ad",
+          "sourceApp": "facebook",
+          "sourceID": "120226305854810726",
+          "sourceURL": "https://fb.me/3cr4Wqqkv"
+        }
+      }
+    }
+  }
+}
