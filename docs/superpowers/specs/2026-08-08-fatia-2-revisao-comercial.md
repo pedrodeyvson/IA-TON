@@ -111,6 +111,15 @@ cobre.
 **Escala para o canal oficial da Ton:** conta bloqueada, dinheiro que não caiu, defeito de
 máquina, estorno. É o que o próprio material do programa manda fazer.
 
+**O canal oficial** (informado pelo dono — o material extraído não trazia; a extração marcou
+corretamente como `NÃO CONSTA NO MATERIAL` em vez de inventar):
+
+> **App da Ton** ou **https://ajuda.ton.com.br/**
+
+A IA sempre entrega o canal junto com a escalação — nunca diz só "procure o suporte da Ton".
+O material é explícito em não abandonar o cliente quando a máquina dá problema, e mandar
+alguém procurar um canal sem dizer qual é abandono com outro nome.
+
 Isto substitui a regra anterior "reclamação e pós-venda sempre escalam" — agora só a parte
 que é da Ton escala.
 
