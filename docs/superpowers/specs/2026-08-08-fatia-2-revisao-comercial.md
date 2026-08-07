@@ -64,31 +64,43 @@ escrever URL: agora ele só escolhe **qual** máquina.
 Quando o cliente ainda não decidiu, a IA manda o **catálogo**. Quando já decidiu, manda o
 checkout do produto — que é o link que converte melhor, porque cai direto no carrinho.
 
-### 3. Régua de follow-up de 5 toques (decisão do dono)
+### 3. Régua de follow-up: a cadência oficial da Ton
 
-Cadência com espaçamento crescente: **24h → 3 dias → 7 dias → 14 dias → 30 dias**. Cada
-toque com ângulo diferente, nunca repetindo o anterior:
+A primeira versão desta decisão foi 5 toques em 30 dias, escolha do dono. A extração de
+`urgencia_remarketing.pdf` mostrou que **o próprio programa Renda Ton define a cadência** e
+trata desvio como infração — o material chama frequência sem cadência de *"perseguição
+(contra diretrizes)"*. O dono reviu a decisão à luz do documento e adotou a cadência oficial.
 
-| Toque | Ângulo |
-|---|---|
-| 1 (24h) | "Conseguiu concluir o cadastro? Travou em alguma parte?" |
-| 2 (3d) | Descobrir a objeção — pergunta o que pesou na decisão |
-| 3 (7d) | Quebrar a objeção mais provável pelo que se sabe do lead |
-| 4 (14d) | Urgência: condição/desconto vigente (só se o material trouxer condição real) |
-| 5 (30d) | Última chamada, leve, deixando a porta aberta |
+**Ciclo de remarketing: 4 toques, contados a partir do envio do link.**
 
-Depois do toque 5 o lead vira `perdido` e a IA nunca mais inicia conversa com ele.
+| Toque | Quando | Ângulo |
+|---|---|---|
+| 1 | dia 0 (+24h do link) | "Conseguiu concluir o cadastro? Travou em alguma parte?" |
+| 2 | +2 dias | Descobrir a objeção — pergunta o que pesou |
+| 3 | +5 dias | Quebrar a objeção mais provável pelo que se sabe do lead |
+| 4 | +10 dias | Última do ciclo — prova social ou benefício ainda não citado |
 
-> **Risco registrado.** Eu recomendei 3 toques; o dono escolheu 5+. A instância UAZAPI é
-> **compartilhada com o CPI**, então uma marcação de spam derrubaria os dois projetos. Três
-> travas técnicas obrigatórias reduzem esse risco:
->
-> 1. **Qualquer resposta do lead cancela a régua inteira** — o reagendamento por mensagem
->    recebida já faz isso; a régua só continua no silêncio absoluto.
-> 2. **Opt-out permanente:** se o lead pedir para parar ("para", "não quero mais", "me tira
->    da lista", "sai"), grava `nao_perturbe = true` e nenhum follow-up dispara nunca mais,
->    em nenhum estágio. Escala para o Pedro.
-> 3. **Espaçamento crescente**, nunca dois toques na mesma semana depois do terceiro.
+Sem resposta no toque 4: **pausa obrigatória de 30 dias**. Passados os 30, um novo ciclo pode
+começar, desde que o lead nunca tenha pedido para parar.
+
+**Regra dura do material — cada toque precisa de motivo novo.** Repetir o argumento anterior
+é o que o documento proíbe. Isso vai para o prompt: o ângulo de cada toque entra na instrução
+do turno, e o histórico completo vai junto para o modelo não se repetir.
+
+**Urgência falsa é proibida.** O material é explícito: não dizer que um cupom acaba se ele
+segue vigente. O toque 4 só usa condição com prazo se `docs/conhecimento/produtos-e-taxas.md`
+trouxer uma condição realmente datada — por isso a extração marca essas com
+`⚠️ VERIFICAR VALIDADE`.
+
+Três travas técnicas, mantidas:
+
+1. **Qualquer resposta do lead cancela o ciclo** — o reagendamento por mensagem recebida já
+   faz isso; a régua só avança no silêncio absoluto.
+2. **Opt-out permanente:** se o lead pedir para parar ("para", "não quero mais", "me tira da
+   lista"), grava `nao_perturbe = true`, nenhum follow-up dispara nunca mais em nenhum
+   estágio, e escala para o Pedro.
+3. **Um toque por dia, no máximo** — trava de segurança contra bug de agendamento, não
+   contra o desenho.
 
 ### 4. Pós-venda guiado pelos documentos
 
@@ -122,7 +134,7 @@ o manual de objeções entra.
 
 | Tarefa | Mudança |
 |---|---|
-| 1 | Já feita. Precisa de **migração complementar**: `leads.nao_perturbe`, `conversas.followup_toque` (0–5). A coluna `followup_enviado` vira redundante mas fica (renomear quebraria código já escrito) |
+| 1 | Já feita. Precisa de **migração complementar**: `leads.nao_perturbe`, `conversas.followup_toque` (0–4), `conversas.ciclo_pausado_ate`. A coluna `followup_enviado` vira redundante mas fica (renomear quebraria código já escrito) |
 | 10 | `conhecimento.ts` deixa de ser esqueleto: passa a carregar os três manuais destilados. Sai o teste que proíbe percentual; entra o que confere os números contra a tabela |
 | 12 | `registrar_link_enviado` ganha o argumento `produto`; entra `registrar_resultado_compra`; entra o módulo `links.ts` com o template e o mapa |
 | 13 | O turno ganha o modo pós-venda e o gatilho de cada toque da régua |
