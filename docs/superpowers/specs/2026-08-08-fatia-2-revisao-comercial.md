@@ -9,6 +9,30 @@ O dono trouxe o material comercial real da Ton (~35 documentos em
 decisões e amplia o escopo do agente de "qualifica e manda link" para **vendedor completo,
 do primeiro contato ao pós-venda**.
 
+## 0. A persona: Mika, vendedora (não assistente)
+
+**Ela não é assistente de ninguém.** O design original a tratava como "o assistente do Pedro",
+que fala em nome dele. Está errado, e o dono corrigiu: para o cliente, **ela é a pessoa que
+está atendendo**. Vendedora, não recepcionista, não secretária, não "posso te encaminhar".
+
+- **Nome:** Mika. **Gênero:** feminino — "a Mika", "sou consultora", concordância feminina em
+  tudo que ela diz sobre si.
+- **Papel:** consultora parceira da Ton. Continua valendo a regra do programa: **nunca** se
+  apresenta como funcionária da Ton.
+- **Postura:** perfil de vendedora. Ela está ali para vender a maquininha — conduz a conversa,
+  faz as perguntas de qualificação, contorna objeção e fecha. Não fica esperando o cliente
+  pedir; não devolve pergunta com pergunta genérica; não age como intermediária de outra
+  pessoa.
+
+**Nunca diz** "vou passar para o Pedro", "meu chefe", "a pessoa responsável", "sou uma IA",
+"sou um assistente virtual". Quando escala, ela diz que vai confirmar e retorna — porque quem
+volta é ela mesma.
+
+Isso não muda a mecânica de escalação: `precisa_atencao` e `pausada_pela_ia` continuam
+idênticos, e o Pedro assume pelo inbox. Do lado do cliente, quem responde continua sendo a
+Mika — por isso mensagem com `remetente = "humano"` entra no histórico do modelo como
+`assistant`, na mesma voz.
+
 ## Decisões que mudam
 
 ### 1. A IA fala taxa (inverte a decisão anterior)
@@ -149,6 +173,66 @@ conversa: o lead diz que comprou, ou diz que não.
 
 O `nao_comprou` é o ponto de maior valor da fatia: é onde o lead diz o que travou, e é onde
 o manual de objeções entra.
+
+## 6. Funil do Kanban e eventos da Meta por etapa
+
+O CRM existe para alimentar tráfego pago: cada avanço no funil vira um evento na Meta, e o
+algoritmo passa a otimizar por quem realmente compra, não por quem só conversa.
+
+**Metade disso já existe.** A Fatia 1 implementou `src/lib/capi/capi.server.ts` e a tabela
+`eventos_capi` nasceu com exatamente os quatro nomes no check. `LeadSubmitted` já dispara em
+produção. Falta ligar os outros três às transições de estágio.
+
+### Mapeamento estágio → evento
+
+Os 8 estágios internos ficam; o Kanban agrupa em 4 colunas na tela. O sistema raciocina com
+8 (a Mika precisa saber a diferença entre *apresentando solução* e *contornando objeção*), o
+dono vê 4.
+
+| Estágio interno | Coluna do Kanban | Evento na Meta |
+|---|---|---|
+| `novo` | Novo | `LeadSubmitted` *(já dispara hoje, no ingest)* |
+| `qualificando` | Novo | — (transição, não dispara) |
+| `apresentando_solucao` | Qualificado | `QualifiedLead` |
+| `contornando_objecao` | Qualificado | `QualifiedLead` *(dedup: não reenvia)* |
+| `link_enviado` | Interesse | `InitiateCheckout` |
+| `acompanhamento` | Interesse | — (já disparou no link) |
+| `convertido` | Venda | `Purchase` |
+| `perdido` | — (fora do Kanban) | — |
+
+O disparo acontece dentro de `moverEstagio`, não espalhado pelo código: uma transição, um
+evento, um lugar só.
+
+### Valor do `Purchase`
+
+Vai a **comissão estimada** do lead (`leads.comissao_estimada`), em BRL — é a receita real da
+venda para o dono, então a Meta otimiza pelo que paga. Quando o campo estiver vazio, cai num
+padrão configurável (`COMISSAO_PADRAO_BRL`). Sem valor, a Meta otimizaria por volume de
+conversa, que é o sinal mais fraco disponível.
+
+### Limite honesto: só lead de anúncio gera evento
+
+O CAPI em modo `business_messaging` depende do `ctwa_clid`, que só chega em lead vindo de
+anúncio clique-para-WhatsApp. **Lead orgânico não tem atribuição e não gera evento** — a Meta
+rejeitaria. O Kanban funciona igual para todo mundo; só o disparo é restrito.
+
+Isso não é limitação nova desta fatia: é como o `LeadSubmitted` já se comporta hoje.
+
+### Deduplicação
+
+A Meta **não** deduplica eventos de business messaging. A dedup é nossa, pela tabela
+`eventos_capi` (`lead_id` + `nome_evento` com `status_resposta = "ok"`), que já existe e já é
+usada pelo `LeadSubmitted`. Um lead que vai e volta entre `apresentando_solucao` e
+`contornando_objecao` gera **um** `QualifiedLead`, não vários.
+
+### A Mika move o lead
+
+Ela já tem a tool `atualizar_lead` com o argumento `estagio`. Como o disparo mora dentro de
+`moverEstagio`, ela alimenta o Meta Ads sem saber que faz isso — não há tool de CAPI, não há
+como ela disparar um evento errado, e não há como esquecer.
+
+**Falha de CAPI nunca custa a conversa:** `try/catch` e `console.warn`, mesmo princípio já
+usado no `ingest.server.ts`.
 
 ## O que isso muda no plano de implementação
 
