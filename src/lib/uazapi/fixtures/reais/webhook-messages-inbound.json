@@ -1,0 +1,17 @@
+{
+  "event": "messages",
+  "instance": "cpi-principal",
+  "data": {
+    "id": "rAAAA111",
+    "messageid": "3EB0ABCDEF",
+    "chatid": "5511987654321@s.whatsapp.net",
+    "sender": "5511987654321@s.whatsapp.net",
+    "senderName": "Cliente Teste",
+    "isGroup": false,
+    "fromMe": false,
+    "messageType": "conversation",
+    "text": "Oi, tudo bem?",
+    "messageTimestamp": 1752000000,
+    "content": "{\"key\":{\"remoteJid\":\"5511987654321@s.whatsapp.net\",\"fromMe\":false,\"id\":\"3EB0ABCDEF\"},\"message\":{\"conversation\":\"Oi, tudo bem?\"},\"pushName\":\"Cliente Teste\"}"
+  }
+}

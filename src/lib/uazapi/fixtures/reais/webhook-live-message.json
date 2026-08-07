@@ -1,0 +1,32 @@
+{
+  "EventType": "messages",
+  "chatSource": "updated",
+  "instanceName": "teste-11549764",
+  "owner": "551199990000",
+  "token": "00000000-0000-0000-0000-000000000000",
+  "BaseUrl": "https://exemplo.uazapi.com",
+  "chat": {
+    "id": "r3902dc5a8b1e55",
+    "wa_contactName": "Cliente Teste DMA",
+    "wa_chatid": "551199990002@s.whatsapp.net",
+    "phone": "+55 11 9999-0002"
+  },
+  "message": {
+    "id": "551199990000:2A5942F384A524236495",
+    "text": "Oi",
+    "type": "text",
+    "owner": "551199990000",
+    "chatid": "551199990002@s.whatsapp.net",
+    "fromMe": false,
+    "sender": "100000000000002@lid",
+    "content": "Oi",
+    "isGroup": false,
+    "messageid": "2A5942F384A524236495",
+    "sender_pn": "551199990002@s.whatsapp.net",
+    "senderName": "Cliente Teste (EU)",
+    "sender_lid": "100000000000002@lid",
+    "messageType": "Conversation",
+    "wasSentByApi": false,
+    "messageTimestamp": 1783707327000
+  }
+}

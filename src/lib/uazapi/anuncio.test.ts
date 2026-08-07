@@ -41,9 +41,15 @@ test("preserva o contextInfo inteiro em referralRaw", () => {
   assert.deepEqual(a?.referralRaw, contextInfo);
 });
 
-test("NÃO aceita a grafia minúscula sourceId (é sourceID no proto)", () => {
+// Invertido: o teste original afirmava que a grafia minúscula `sourceId` NÃO
+// deveria ser aceita, assumindo que só `sourceID` (whatsmeow) ocorre em
+// produção. Evidência real do CPI (fixtures/reais/webhook-messages-ctwa.json,
+// mensagem vinda de anúncio de verdade) mostra `sourceId`/`sourceUrl`
+// minúsculos — as duas grafias ocorrem. Rejeitar a minúscula perdia
+// atribuição de anúncio em silêncio para esse formato.
+test("aceita a grafia minúscula sourceId (Baileys) além de sourceID (whatsmeow)", () => {
   const a = extrairAtribuicaoAnuncio({ contextInfo: { externalAdReply: { sourceId: "999" } } });
-  assert.equal(a?.adSourceId, null);
+  assert.equal(a?.adSourceId, "999");
 });
 
 test("tolera conteudo nulo ou sem contextInfo", () => {

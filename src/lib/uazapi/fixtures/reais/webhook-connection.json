@@ -1,0 +1,10 @@
+{
+  "event": "connection",
+  "instance": "cpi-principal",
+  "data": {
+    "instance": "cpi-principal",
+    "status": "connected",
+    "loggedIn": true,
+    "jid": "5511000000000@s.whatsapp.net"
+  }
+}

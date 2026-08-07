@@ -1,0 +1,17 @@
+{
+  "event": "messages",
+  "instance": "cpi-principal",
+  "data": {
+    "id": "rCCCC333",
+    "messageid": "3EB0SRCID77",
+    "chatid": "5511977776666@s.whatsapp.net",
+    "sender": "5511977776666@s.whatsapp.net",
+    "senderName": "Cliente Anuncio",
+    "isGroup": false,
+    "fromMe": false,
+    "messageType": "extendedTextMessage",
+    "text": "Olá! Quero informações sobre se tenho direito ao auxílio.",
+    "messageTimestamp": 1752000200,
+    "content": "{\"key\":{\"remoteJid\":\"5511977776666@s.whatsapp.net\",\"fromMe\":false,\"id\":\"3EB0SRCID77\"},\"message\":{\"extendedTextMessage\":{\"text\":\"Olá! Quero informações sobre se tenho direito ao auxílio.\",\"contextInfo\":{\"externalAdReply\":{\"title\":\"AD_08\",\"body\":\"Clique e fale conosco\",\"mediaType\":1,\"sourceType\":\"ad\",\"sourceId\":\"120254805677690311\",\"sourceUrl\":\"https://fb.me/abc\",\"showAdAttribution\":true}}}},\"pushName\":\"Cliente Anuncio\"}"
+  }
+}
