@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { criarAdminFake } from "./admin-fake.ts";
-import { enviarTextoDoCrm } from "./mensagens.server.ts";
+import { enviarTextoDoCrm, listarMensagens } from "./mensagens.server.ts";
 
 const BASE = {
   conversaId: "C1", leadId: "L1", telefone: "5511987654321",
@@ -69,4 +69,62 @@ test("sem telefone não tenta enviar e devolve erro", async () => {
   });
   assert.equal(r.ok, false);
   assert.equal(tentou, false);
+});
+
+test("update para 'enviada' falha: a mensagem foi entregue, e o retorno sinaliza a falha de persistência separadamente", async () => {
+  const admin = criarAdminFake({
+    "mensagens.insert": { data: { id: "M1" }, error: null },
+    "mensagens.update": { data: null, error: { message: "conexão perdida" } },
+  });
+  const r = await enviarTextoDoCrm(admin, BASE, { enviar: async () => ({ messageid: "WA1" }) });
+
+  // A UAZAPI recebeu a mensagem — isso não é uma falha de envio — mas o
+  // banco não conseguiu marcar "enviada", então o erro precisa aparecer
+  // mesmo com ok:true, para quem chama não tratar isso como sucesso mudo.
+  assert.equal(r.ok, true);
+  assert.match(r.erro ?? "", /conexão perdida/);
+});
+
+test("falha no envio E falha ao marcar 'falhou': não lança e sinaliza os dois erros", async () => {
+  const admin = criarAdminFake({
+    "mensagens.insert": { data: { id: "M1" }, error: null },
+    "mensagens.update": { data: null, error: { message: "timeout no update" } },
+  });
+  const r = await enviarTextoDoCrm(admin, BASE, {
+    enviar: async () => { throw new Error("UAZAPI 500"); },
+  });
+
+  assert.equal(r.ok, false);
+  assert.match(r.erro ?? "", /UAZAPI 500/);
+  assert.match(r.erro ?? "", /timeout no update/);
+});
+
+test("update para 'falhou' lança exceção: a função ainda assim não lança", async () => {
+  const admin = criarAdminFake({
+    "mensagens.insert": { data: { id: "M1" }, error: null },
+    "mensagens.update": () => { throw new Error("conexão caiu"); },
+  });
+  const r = await enviarTextoDoCrm(admin, BASE, {
+    enviar: async () => { throw new Error("UAZAPI 500"); },
+  });
+
+  assert.equal(r.ok, false);
+  assert.match(r.erro ?? "", /UAZAPI 500/);
+  assert.match(r.erro ?? "", /conexão caiu/);
+});
+
+test("listarMensagens devolve a conversa do mais antigo para o mais novo", async () => {
+  // O banco devolve mais novo primeiro (ORDER BY timestamp_ms DESC); a função
+  // precisa inverter isso antes de devolver, senão a IA lê a conversa de
+  // trás para frente sem ninguém perceber.
+  const doBancoMaisNovoPrimeiro = [
+    { id: "M3", timestamp_ms: 300 },
+    { id: "M2", timestamp_ms: 200 },
+    { id: "M1", timestamp_ms: 100 },
+  ];
+  const admin = criarAdminFake({
+    "mensagens.select": { data: doBancoMaisNovoPrimeiro, error: null },
+  });
+  const resultado = await listarMensagens(admin, "C1");
+  assert.deepEqual(resultado.map((m: any) => m.id), ["M1", "M2", "M3"]);
 });
