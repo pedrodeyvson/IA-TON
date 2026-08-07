@@ -18,12 +18,14 @@ Estes valem para **todas** as tarefas:
 - **Testes:** `node --test --experimental-strip-types "src/**/*.test.ts"`. O loader ESM nativo **não resolve o alias `@/`** e **exige extensão `.ts` explícita** nos imports. Todo módulo que tem teste importa somente por caminho relativo com `.ts`.
 - **Migrations** são aplicadas via MCP `mcp__plugin_supabase_supabase__apply_migration`. Migration aplicada nunca é editada — correção sempre em migration nova.
 - **Nomes de coluna são neutros quanto ao provider:** `provider_message_id`, nunca `uazapi_message_id` ou `evolution_message_id`.
-- **TODO objeto de banco vive no schema `ton`, nunca em `public`.** O banco é compartilhado com outro sistema em produção (o `IA_CRM`, que tem uma tabela `webhook_events` viva com ~1.600 registros). O schema dedicado torna a colisão impossível por construção. Isso vale para tabelas, funções, triggers e policies. Ao referenciar, sempre qualificar: `ton.leads`, `ton.eh_dono()`. Funções usam `set search_path = ton, public`.
+- **Objetos de banco vivem em `public`**, no schema padrão — o projeto Supabase é dedicado a este sistema, então não há com o que colidir. Funções usam `set search_path = public`.
 - **Campos de `contextInfo` são não documentados** e podem sumir: todo acesso usa optional chaining, toda coluna é nullable.
 - **Grafia crítica:** `sourceID` e `sourceURL` — **maiúsculas** no final. Não é `sourceId`/`sourceUrl`.
 - Toda mensagem de erro voltada ao usuário é em português.
 
-**Projeto Supabase (decidido em 07/08/2026):** `dzpawynpyhqytmwihyrd` (nome "IA_CRM", região sa-east-1). ⚠️ **Este banco hospeda outro sistema em produção.** O schema `public` dele tem 37 tabelas vivas (1.826 mensagens, 2.877 execuções de agente, RAG com embeddings) que **não podem ser tocadas**. Por isso o TON-CRM-IA vive inteiro no schema `ton`. Nunca rode DDL contra `public` neste banco.
+**Projeto Supabase (decidido em 07/08/2026):** `fqnvwrhetpnwsxqfwxnf` (nome "TON CRM IA", região sa-east-1, organização `vyyuegptcmiqfywkmxly`). Dedicado a este sistema — nenhum outro projeto compartilha este banco.
+
+> Histórico: cogitou-se reutilizar o projeto `dzpawynpyhqytmwihyrd` ("IA_CRM"), mas ele hospeda outro sistema em produção cujo `public` tem 36 tabelas vivas — incluindo uma `webhook_events` que colidiria com a nossa. Optou-se por um banco dedicado.
 
 **Hospedagem:** Vercel, projeto `ebx/ia-ton` → `ia-ton.vercel.app`, ligado ao repo `github.com/pedrodeyvson/IA-TON`, deploy automático da branch `main`.
 
@@ -756,19 +758,11 @@ git commit -m "feat: extração de atribuição de anúncio do contextInfo"
 -- só separa "usuário autenticado" de "anônimo", e o service_role do webhook
 -- passa por cima dela para poder gravar mensagens de quem ainda não é usuário.
 --
--- ⚠️ ESTE BANCO É COMPARTILHADO com outro sistema em produção (IA_CRM), cujo
--- schema `public` tem 37 tabelas vivas — incluindo uma `webhook_events` com
--- ~1.600 registros. TODO objeto deste projeto vive no schema `ton`. Nunca rode
--- DDL contra `public` aqui.
-
-create schema if not exists ton;
-
-grant usage on schema ton to authenticated, service_role;
 
 -- Espelha em SQL a normalização de telefone feita em src/lib/telefone.ts.
 -- IMMUTABLE porque é usada em índice.
-create or replace function ton.normalizar_telefone_br(p text)
-returns text language plpgsql immutable set search_path = ton, public as $$
+create or replace function public.normalizar_telefone_br(p text)
+returns text language plpgsql immutable set search_path = public as $$
 declare d text;
 begin
   if p is null then return null; end if;
@@ -780,12 +774,12 @@ begin
   return d;
 end; $$;
 
-create or replace function ton.eh_dono()
-returns boolean language sql stable security definer set search_path = ton, public as $$
+create or replace function public.eh_dono()
+returns boolean language sql stable security definer set search_path = public as $$
   select auth.uid() is not null;
 $$;
 
-create table ton.leads (
+create table public.leads (
   id uuid primary key default gen_random_uuid(),
   telefone text,
   telefone_normalizado text,
@@ -818,35 +812,35 @@ create table ton.leads (
 );
 
 create index leads_telefone_normalizado_idx
-  on ton.leads (telefone_normalizado) where telefone_normalizado is not null;
+  on public.leads (telefone_normalizado) where telefone_normalizado is not null;
 create index leads_ad_source_id_idx
-  on ton.leads (ad_source_id) where ad_source_id is not null;
-create index leads_estagio_idx on ton.leads (estagio);
+  on public.leads (ad_source_id) where ad_source_id is not null;
+create index leads_estagio_idx on public.leads (estagio);
 
-create or replace function ton.leads_set_telefone_normalizado()
-returns trigger language plpgsql set search_path = ton, public as $$
+create or replace function public.leads_set_telefone_normalizado()
+returns trigger language plpgsql set search_path = public as $$
 begin
-  new.telefone_normalizado := ton.normalizar_telefone_br(new.telefone);
+  new.telefone_normalizado := public.normalizar_telefone_br(new.telefone);
   new.atualizado_em := now();
   return new;
 end; $$;
 
 create trigger trg_leads_normalizar_telefone
-  before insert or update on ton.leads
-  for each row execute function ton.leads_set_telefone_normalizado();
+  before insert or update on public.leads
+  for each row execute function public.leads_set_telefone_normalizado();
 
-create table ton.conversas (
+create table public.conversas (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null unique references ton.leads(id) on delete cascade,
+  lead_id uuid not null unique references public.leads(id) on delete cascade,
   pausada_pela_ia boolean not null default false,
   assumida_em timestamptz,
   criado_em timestamptz not null default now()
 );
 
-create table ton.mensagens (
+create table public.mensagens (
   id uuid primary key default gen_random_uuid(),
-  conversa_id uuid not null references ton.conversas(id) on delete cascade,
-  lead_id uuid not null references ton.leads(id) on delete cascade,
+  conversa_id uuid not null references public.conversas(id) on delete cascade,
+  lead_id uuid not null references public.leads(id) on delete cascade,
   provider_message_id text,
   remetente text not null check (remetente in ('lead','ia','humano')),
   direcao text not null check (direcao in ('in','out')),
@@ -864,12 +858,12 @@ create table ton.mensagens (
 
 -- Segunda camada de idempotência (a primeira é o pré-check no ingest).
 create unique index mensagens_provider_message_id_uniq
-  on ton.mensagens (provider_message_id) where provider_message_id is not null;
-create index mensagens_lead_ts_idx on ton.mensagens (lead_id, timestamp_ms desc);
+  on public.mensagens (provider_message_id) where provider_message_id is not null;
+create index mensagens_lead_ts_idx on public.mensagens (lead_id, timestamp_ms desc);
 
 -- Mantém o preview do inbox atualizado sem subquery na listagem.
-create or replace function ton.mensagens_apos_insert()
-returns trigger language plpgsql security definer set search_path = ton, public as $$
+create or replace function public.mensagens_apos_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
 declare v_preview text;
 begin
   v_preview := case new.tipo
@@ -880,7 +874,7 @@ begin
     when 'documento' then '📎 ' || coalesce(new.media_filename, 'Documento')
     else 'Mensagem'
   end;
-  update ton.leads
+  update public.leads
      set ultima_mensagem_em = to_timestamp(new.timestamp_ms / 1000.0),
          ultima_mensagem_preview = v_preview,
          ultima_mensagem_direcao = new.direcao,
@@ -891,10 +885,10 @@ begin
 end; $$;
 
 create trigger trg_mensagens_apos_insert
-  after insert on ton.mensagens
-  for each row execute function ton.mensagens_apos_insert();
+  after insert on public.mensagens
+  for each row execute function public.mensagens_apos_insert();
 
-create table ton.webhook_events (
+create table public.webhook_events (
   id uuid primary key default gen_random_uuid(),
   source text not null,
   event_type text,
@@ -910,23 +904,23 @@ create table ton.webhook_events (
 );
 
 create index webhook_events_status_retry_idx
-  on ton.webhook_events (status, next_retry_at) where status in ('pending','failed');
+  on public.webhook_events (status, next_retry_at) where status in ('pending','failed');
 
-create table ton.eventos_lead (
+create table public.eventos_lead (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references ton.leads(id) on delete cascade,
+  lead_id uuid not null references public.leads(id) on delete cascade,
   tipo_evento text not null,
   detalhe jsonb,
   criado_em timestamptz not null default now()
 );
 
-create index eventos_lead_lead_idx on ton.eventos_lead (lead_id, criado_em desc);
+create index eventos_lead_lead_idx on public.eventos_lead (lead_id, criado_em desc);
 
 -- Criada agora, alimentada só quando a fatia do CAPI existir. A Meta NÃO
 -- deduplica eventos de business messaging — a deduplicação é nossa.
-create table ton.eventos_capi (
+create table public.eventos_capi (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references ton.leads(id) on delete cascade,
+  lead_id uuid not null references public.leads(id) on delete cascade,
   nome_evento text not null
     check (nome_evento in ('LeadSubmitted','QualifiedLead','InitiateCheckout','Purchase')),
   event_id text not null unique,
@@ -942,20 +936,20 @@ declare t text;
 begin
   foreach t in array array['leads','conversas','mensagens','webhook_events','eventos_lead','eventos_capi']
   loop
-    execute format('alter table ton.%I enable row level security', t);
-    execute format('grant select, insert, update, delete on ton.%I to authenticated', t);
-    execute format('grant all on ton.%I to service_role', t);
+    execute format('alter table public.%I enable row level security', t);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('grant all on public.%I to service_role', t);
     execute format(
-      'create policy %I on ton.%I for all to authenticated using (ton.eh_dono()) with check (ton.eh_dono())',
+      'create policy %I on public.%I for all to authenticated using (public.eh_dono()) with check (public.eh_dono())',
       t || '_operador', t);
   end loop;
 end $$;
 
 -- Realtime para o inbox.
-alter publication supabase_realtime add table ton.mensagens;
-alter publication supabase_realtime add table ton.leads;
-alter table ton.mensagens replica identity full;
-alter table ton.leads replica identity full;
+alter publication supabase_realtime add table public.mensagens;
+alter publication supabase_realtime add table public.leads;
+alter table public.mensagens replica identity full;
+alter table public.leads replica identity full;
 ```
 
 - [ ] **Step 2: Aplicar a migration**
@@ -971,8 +965,8 @@ Esperado: as 6 tabelas listadas, todas com RLS habilitada.
 
 Usar `mcp__plugin_supabase_supabase__execute_sql`:
 ```sql
-select ton.normalizar_telefone_br('+55 (11) 98765-4321') as com_nove,
-       ton.normalizar_telefone_br('551187654321')        as sem_nove;
+select public.normalizar_telefone_br('+55 (11) 98765-4321') as com_nove,
+       public.normalizar_telefone_br('551187654321')        as sem_nove;
 ```
 Esperado: ambos `551187654321` — o SQL e o TypeScript concordam.
 
@@ -1001,7 +995,7 @@ git commit -m "feat: schema da fundação com RLS, triggers e realtime"
 
 - [ ] **Step 1: Gerar os tipos do banco**
 
-Usar `mcp__plugin_supabase_supabase__generate_typescript_types` e salvar o resultado em `src/integrations/supabase/types.ts`. Os tipos precisam cobrir o schema **`ton`** (não `public`) — confira que o `Database` gerado tem a chave `ton` com as 6 tabelas.
+Usar `mcp__plugin_supabase_supabase__generate_typescript_types` e salvar o resultado em `src/integrations/supabase/types.ts`. 
 
 - [ ] **Step 2: Implementar o cliente do browser**
 
@@ -1040,9 +1034,6 @@ function criar() {
     throw new Error("Supabase não configurado: defina VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY");
   }
   return createClient<Database>(URL_SUPABASE, CHAVE_PUBLICAVEL, {
-    // Todo objeto deste projeto vive no schema `ton` — o banco é compartilhado
-    // com outro sistema, cujo `public` não pode ser tocado.
-    db: { schema: "ton" },
     global: { fetch: criarFetchSupabase(CHAVE_PUBLICAVEL) },
     auth: {
       storage: typeof window !== "undefined" ? localStorage : undefined,
@@ -1081,7 +1072,6 @@ function criar() {
     throw new Error("Supabase admin não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY");
   }
   return createClient<Database>(URL_SUPABASE, CHAVE_SERVICO, {
-    db: { schema: "ton" },
     global: { fetch: criarFetchSupabase(CHAVE_SERVICO) },
     auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
   });
@@ -1677,7 +1667,7 @@ curl -s -X POST "http://localhost:3000/api/public/uazapi?secret=teste123" \
 Verificar no banco com `mcp__plugin_supabase_supabase__execute_sql`:
 ```sql
 select l.telefone_normalizado, l.ad_source_id, l.ad_title, count(m.id) as mensagens
-from ton.leads l left join ton.mensagens m on m.lead_id = l.id
+from public.leads l left join public.mensagens m on m.lead_id = l.id
 group by l.id, l.telefone_normalizado, l.ad_source_id, l.ad_title;
 ```
 Esperado: 1 lead com `ad_source_id = '120226305854810726'` e **exatamente 1 mensagem** (não 2) — a idempotência funcionou.
@@ -1712,7 +1702,7 @@ on conflict (id) do nothing;
 
 create policy "midia leitura do operador"
   on storage.objects for select to authenticated
-  using (bucket_id = 'crm-midia' and ton.eh_dono());
+  using (bucket_id = 'crm-midia' and public.eh_dono());
 ```
 
 Aplicar via `mcp__plugin_supabase_supabase__apply_migration`.
@@ -1901,7 +1891,7 @@ import { createClient } from "@supabase/supabase-js";
 const admin = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { db: { schema: "ton" }, auth: { persistSession: false } },
+  { auth: { persistSession: false } },
 );
 
 const LEADS_DEMO = [
@@ -1997,8 +1987,8 @@ Esperado: nenhum `+` novo no log — nada foi duplicado.
 
 Verificar com `mcp__plugin_supabase_supabase__execute_sql`:
 ```sql
-select estagio, count(*) from ton.leads where telefone like '55119000000%' group by estagio;
-select count(*) as mensagens_demo from ton.mensagens where provider_message_id like 'demo-%';
+select estagio, count(*) from public.leads where telefone like '55119000000%' group by estagio;
+select count(*) as mensagens_demo from public.mensagens where provider_message_id like 'demo-%';
 ```
 Esperado: 5 leads distribuídos nos estágios; exatamente 5 mensagens.
 
