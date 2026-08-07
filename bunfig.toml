@@ -1,0 +1,3 @@
+[install]
+# Ignora versões publicadas há menos de 24h — guarda contra supply-chain.
+minimumReleaseAge = 86400
