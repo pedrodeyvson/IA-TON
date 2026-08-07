@@ -14,5 +14,8 @@
 
 drop index if exists public.leads_telefone_normalizado_idx;
 
-create unique index leads_telefone_normalizado_uniq
+-- `if not exists` porque este índice chegou ao banco fora do fluxo de migration
+-- (ver histórico da branch); torná-lo idempotente permite registrar a migration
+-- sem precisar dropar e recriar um índice já correto.
+create unique index if not exists leads_telefone_normalizado_uniq
   on public.leads (telefone_normalizado) where telefone_normalizado is not null;
