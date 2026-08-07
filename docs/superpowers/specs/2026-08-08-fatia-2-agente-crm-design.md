@@ -36,6 +36,20 @@ de mídia pelo CRM (Fatia 5).
   `createServerFn` com `requireSupabaseAuth` entram como casca fina por cima.
 - **O agente nunca escreve o link.** O link vem de variável de ambiente; o modelo só decide
   *quando* enviá-lo, chamando uma tool.
+- **Taxa é sempre escalada, nunca respondida.** Qualquer pergunta sobre taxa de débito,
+  crédito, parcelado, Pix ou negociação por faturamento vira escalação para o Pedro, mesmo
+  que a FAQ tenha o número. Elimina a categoria de erro mais cara do agente: falar um valor
+  errado sobre o dinheiro do cliente.
+- **Follow-up automático de uma tentativa só.** Lead que recebeu o link e não voltou leva uma
+  mensagem depois de 24h — e nunca mais. Não é abordagem fria: retoma uma conversa que o
+  próprio lead começou, o que respeita o "leads são só inbound" do spec-mãe e as regras de
+  conduta anti-spam do programa. Uma tentativa só porque a instância UAZAPI é compartilhada
+  com o CPI e uma marcação de spam derrubaria os dois projetos.
+- **Modelo: `gpt-5.4-mini`.** O CPI não tem agente de IA para herdar modelo — o único modelo
+  lá é o `whisper-large-v3-turbo` do Groq, que a Fatia 1 já copiou. A escolha é nova: o lead
+  espera no WhatsApp, então latência e custo pesam tanto quanto capacidade, e a tarefa é
+  conversa guiada por FAQ curada com três tools, não raciocínio pesado. O golden set dirá se
+  precisa subir para `gpt-5.5`.
 
 ## Fluxo
 
@@ -65,9 +79,20 @@ então a janela só fecha depois que ele para de escrever.
 ## Modelo de dados (migração `20260808_agente.sql`)
 
 **`conversas`** ganha:
-`responder_em timestamptz` (null = nada pendente), `processando_em timestamptz` (lock do
-worker), `tentativas integer default 0`, `ultimo_erro text`.
+`responder_em timestamptz` (null = nada pendente), `motivo_agendamento text check in
+('resposta','followup')`, `processando_em timestamptz` (lock do worker), `tentativas integer
+default 0`, `ultimo_erro text`, `followup_enviado boolean default false`.
 Índice parcial `(responder_em) where responder_em is not null` — o loop consulta a cada 3s.
+
+O follow-up **reusa o mesmo agendamento** da resposta: quando o link é enviado, grava
+`responder_em = now() + FOLLOWUP_HORAS` com `motivo_agendamento = 'followup'`. Um loop, um
+lock, um caminho de erro. E o cancelamento sai de graça: se o lead responder antes, o webhook
+reagenda com `motivo = 'resposta'` e o follow-up simplesmente deixa de existir.
+
+**`tarefas`** (nova, molde do `crm_tasks` do CPI sem a parte de multi-tenancy):
+`id`, `lead_id`, `titulo`, `descricao`, `prazo timestamptz`, `concluida boolean default
+false`, `concluida_em`, `criado_em`. Índice `(concluida, prazo)` e `(lead_id)`.
+São os lembretes que o Pedro cria à mão — a IA não escreve aqui.
 
 **`mensagens`** ganha:
 `status text check (status in ('pendente','enviada','falhou'))`. Mesmo papel do `status` em
@@ -91,6 +116,7 @@ existe; só as datas que o dashboard da Fatia 4 realmente consulta viram coluna.
 | `leads.server.ts` | `obterLead`, `atualizarLead`, `moverEstagio`, `marcarPrecisaAtencao`, `registrarNota` | `admin`, `estagios` |
 | `conversas.server.ts` | `listarConversas`, `obterConversa`, `marcarLida`, `pausarIa`, `retomarIa`, `agendarResposta` | `admin` |
 | `mensagens.server.ts` | `listarMensagens`, `enviarTextoDoCrm` (grava pendente → UAZAPI → enviada) | `admin`, cliente UAZAPI |
+| `tarefas.server.ts` | `listarTarefas`, `criarTarefa`, `alternarTarefa`, `excluirTarefa` | `admin` |
 
 `moverEstagio` grava um registro em `eventos_lead` com `{de, para}` — é o que alimenta o
 funil da Fatia 4, no mesmo espírito do `crm_lead_eventos` do CPI.
@@ -118,7 +144,7 @@ O `setInterval`, o lock e o backoff. Plugado no `server.ts` da raiz. Não roda e
 | Tool | Argumentos | Efeito |
 |---|---|---|
 | `atualizar_lead` | `nome?`, `maquina_interesse?`, `estagio?` | Atualiza o lead; `estagio` passa por `moverEstagio` e gera evento |
-| `registrar_link_enviado` | — | Devolve o link de `TON_LINK_INDICACAO` para o modelo colar na resposta, move para `link_enviado`, carimba `link_enviado_em` |
+| `registrar_link_enviado` | — | Devolve o link de `TON_LINK_INDICACAO` para o modelo colar na resposta, move para `link_enviado`, carimba `link_enviado_em` e **agenda o follow-up** para daqui a `FOLLOWUP_HORAS` |
 | `escalar_para_humano` | `motivo` | `precisa_atencao = true`, `pausada_pela_ia = true`, grava evento. O agente **não** responde neste turno |
 
 `consultar_estado_lead` do spec-mãe **sai**: o estado do lead já viaja no system prompt, então
@@ -136,13 +162,21 @@ faz sentido) e quando o lead demonstra intenção — pergunta como pegar, diz q
 manda na primeira menção a maquininha.
 
 **Escala e para de responder quando:**
-1. O lead pede para falar com pessoa — inclusive de forma indireta ("é robô?", "me liga").
-2. O lead está irritado, ou o assunto é reclamação / suporte pós-venda. O suporte oficial é
+1. **Qualquer pergunta sobre taxa** — débito, crédito, parcelado, Pix, negociação por
+   faturamento. Sempre, mesmo que a FAQ tenha o número. Regra dura, não julgamento do modelo.
+2. O lead pede para falar com pessoa — inclusive de forma indireta ("é robô?", "me liga").
+3. O lead está irritado, ou o assunto é reclamação / suporte pós-venda. O suporte oficial é
    da própria Ton; o consultor só orienta.
-3. A pergunta é sobre dinheiro, prazo ou política da Ton e a resposta **não está na FAQ**.
+4. A pergunta é sobre prazo ou política da Ton e a resposta **não está na FAQ**.
 
 Não há escalação por contagem de mensagens — decisão explícita do dono. O controle de custo
 vem da janela de histórico, não de desligar o agente.
+
+**Follow-up:** 24h depois de `registrar_link_enviado`, se o lead não voltou, o agente manda
+uma mensagem só, perguntando se conseguiu concluir o cadastro, e move o lead para
+`acompanhamento`. Marca `followup_enviado = true` e nunca mais inicia conversa naquele lead.
+Se o lead respondeu no meio-tempo, o follow-up já foi cancelado pelo reagendamento e nada
+acontece. Se a conversa está pausada ou o lead já foi escalado, o follow-up não dispara.
 
 **Janela de histórico:** as últimas 30 mensagens da conversa. Áudio entra pela transcrição
 (`transcricao`), não pelo arquivo. Imagem entra nesta fatia como marcador de texto
@@ -169,6 +203,8 @@ O webhook nunca é afetado por nada disso — ele já respondeu 200 antes do age
 - `estagios.ts` — transições válidas e inválidas, carimbo de data correto, volta de estágio
 - `politica.ts` — não responde com conversa pausada, com `precisa_atencao`, ou quando a
   última mensagem é da própria IA; agrupa mensagens dentro da janela de debounce
+- follow-up — agenda ao enviar o link; o reagendamento por mensagem do lead cancela;
+  não dispara duas vezes; não dispara com conversa pausada nem lead escalado
 - `prompt.ts` — o link nunca aparece no prompt; estado do lead presente; FAQ presente
 - `tools.ts` — schema das tools, validação de argumentos
 
@@ -186,10 +222,11 @@ não-determinístico.
 | Variável | Papel |
 |---|---|
 | `OPENAI_API_KEY` | Já existe no `.env` |
-| `OPENAI_MODEL` | Modelo do agente. **Pendente de confirmação do dono.** |
+| `OPENAI_MODEL` | `gpt-5.4-mini` |
 | `TON_LINK_INDICACAO` | Link de indicação do Pedro. **Pendente.** O agente nunca escreve o link à mão |
 | `AGENTE_ATIVO` | `true`/`false` — mata o agente sem redeploy se ele começar a falar besteira |
 | `AGENTE_DEBOUNCE_MS` | Padrão `8000` |
+| `FOLLOWUP_HORAS` | Padrão `24`. `0` desliga o follow-up |
 
 ---
 
@@ -222,17 +259,17 @@ Para cada modelo, precisa: para quem serve, preço, e o que a diferencia da de b
 **Pergunta que decide o modelo:** `[PREENCHER: o que você pergunta pro cliente pra saber qual
 indicar? faturamento? tem wi-fi? precisa de comprovante impresso?]`
 
-## Taxas e recebimento
+## Taxas — a IA nunca responde
 
-- Taxa de débito: `[PREENCHER]`
-- Taxa de crédito à vista: `[PREENCHER]`
-- Taxa de crédito parcelado: `[PREENCHER]`
-- Pix na maquininha: `[PREENCHER — tem taxa?]`
-- Prazo de recebimento: `[PREENCHER]`
-- Existe plano/negociação de taxa por faturamento? `[PREENCHER]`
+Decidido: **toda** pergunta sobre taxa (débito, crédito, parcelado, Pix, negociação por
+faturamento) escala para o Pedro. Não há número de taxa em lugar nenhum da FAQ, então nem o
+acidente é possível.
 
-> ⚠️ Se você preferir que a IA **nunca** fale taxa e sempre escale essa pergunta, me diga —
-> é uma linha de configuração e some o risco inteiro.
+O que a IA diz antes de escalar: `[PREENCHER: a frase que você quer que ela use. rascunho —
+"Taxa eu prefiro te passar certinho, deixa eu confirmar aqui e já te respondo"]`
+
+**Prazo de recebimento** é assunto separado de taxa. Se você quiser que ela responda:
+`[PREENCHER: prazo de recebimento — ou escreva "escalar" que eu trato igual à taxa]`
 
 ## Como o cliente compra (o caminho do link)
 
@@ -255,6 +292,12 @@ Rascunho meu — corrija a resposta e acrescente as que faltam.
 | "E se der problema?" | `[PREENCHER]` |
 | "Tem mensalidade / aluguel?" | `[PREENCHER]` |
 | `[acrescente as suas]` | |
+
+## Follow-up de 24h
+
+A mensagem que a IA manda quando o lead recebeu o link e sumiu.
+Rascunho: `[PREENCHER: "Oi {nome}, conseguiu concluir o cadastro? Se travou em alguma parte
+me fala que eu te ajudo"]` — corrija para soar como você.
 
 ## O que a IA nunca fala
 
