@@ -183,25 +183,84 @@ algoritmo passa a otimizar por quem realmente compra, não por quem só conversa
 `eventos_capi` nasceu com exatamente os quatro nomes no check. `LeadSubmitted` já dispara em
 produção. Falta ligar os outros três às transições de estágio.
 
-### Mapeamento estágio → evento
+### Mapeamento estágio → coluna → evento
 
-Os 8 estágios internos ficam; o Kanban agrupa em 4 colunas na tela. O sistema raciocina com
-8 (a Mika precisa saber a diferença entre *apresentando solução* e *contornando objeção*), o
-dono vê 4.
+Os 8 estágios internos ficam; o Kanban agrupa em 4 colunas. O sistema raciocina com 8 (a Mika
+precisa saber a diferença entre *apresentando solução* e *contornando objeção*), o dono vê 4.
+
+Os eventos são os **padrão do Meta Ads**, definidos pelo dono:
 
 | Estágio interno | Coluna do Kanban | Evento na Meta |
 |---|---|---|
-| `novo` | Novo | `LeadSubmitted` *(já dispara hoje, no ingest)* |
-| `qualificando` | Novo | — (transição, não dispara) |
-| `apresentando_solucao` | Qualificado | `QualifiedLead` |
-| `contornando_objecao` | Qualificado | `QualifiedLead` *(dedup: não reenvia)* |
-| `link_enviado` | Interesse | `InitiateCheckout` |
+| `novo` | **Novo** | `Lead` |
+| `qualificando` | Novo | — (ainda não qualificou) |
+| `apresentando_solucao` | **Qualificado** | `AddToCart` |
+| `contornando_objecao` | Qualificado | `AddToCart` *(dedup: não reenvia)* |
+| `link_enviado` | **Interesse** | `InitiateCheckout` |
 | `acompanhamento` | Interesse | — (já disparou no link) |
-| `convertido` | Venda | `Purchase` |
-| `perdido` | — (fora do Kanban) | — |
+| `convertido` | **Venda** | `Purchase` |
+| `perdido` | fora do Kanban | — |
 
 O disparo acontece dentro de `moverEstagio`, não espalhado pelo código: uma transição, um
 evento, um lugar só.
+
+**Migração necessária:** o check de `eventos_capi.nome_evento` hoje aceita
+`('LeadSubmitted','QualifiedLead','InitiateCheckout','Purchase')`. Precisa passar a aceitar
+`('Lead','AddToCart','InitiateCheckout','Purchase')`, e o `LeadSubmitted` que o
+`ingest.server.ts` dispara hoje vira `Lead`.
+
+> ⚠️ **Risco a verificar empiricamente, não supor.** O CPI usa `LeadSubmitted` com
+> `action_source: "business_messaging"` e funciona. Não está confirmado que `AddToCart`
+> é aceito nesse mesmo `action_source` — a Meta documenta os eventos padrão para pixel/web,
+> e messaging tem um conjunto próprio. **Antes de implementar, dispare um evento de teste de
+> cada um dos quatro tipos contra a API real e leia a resposta.** É a mesma lição da Fatia 1,
+> onde 49 testes passavam contra fixtures inventados e a função falhava 6/6 contra payload
+> real. Se `AddToCart` for rejeitado, o dono decide entre trocar o nome do evento ou mudar o
+> `action_source` — não invente o fallback sozinho.
+
+### Os critérios: como a Mika sabe a hora de mover
+
+Esta é a parte que faz o Kanban valer alguma coisa. Sem critério objetivo, o modelo move o
+lead cedo demais (inflando o funil e sujando o sinal para a Meta) ou tarde demais (perdendo
+otimização). Os critérios abaixo vão para o system prompt como **regra**, com exemplo de fala
+do cliente em cada um.
+
+**→ Novo** — automático, no ingest. O lead mandou a primeira mensagem. A Mika não decide isso.
+
+**→ Qualificado** (`apresentando_solucao`) — mover quando **as duas** forem verdade:
+1. A Mika já sabe **o que o cliente vende ou que negócio ele tem** — ramo, tipo de comércio,
+   ou o que faz. Não basta "oi, quero maquininha".
+2. O cliente demonstrou **necessidade real**, não curiosidade solta: falou de vender fiado,
+   de perder venda por não ter cartão, de taxa alta do que usa hoje, de querer trocar.
+
+Exemplos que qualificam: *"tenho uma lanchonete e tô perdendo venda no cartão"* · *"minha
+maquininha atual cobra caro demais"* · *"vou abrir um salão e preciso de uma"*.
+Não qualificam: *"quanto custa?"* sozinho · *"vi o anúncio"* · *"me manda informação"*.
+
+**→ Interesse** (`link_enviado`) — mover quando o cliente **sinaliza intenção de adquirir**:
+pediu o link, perguntou como comprar, escolheu um modelo, perguntou o preço já decidido, ou
+disse que vai fechar.
+
+Exemplos: *"como faço pra pegar?"* · *"me manda o link"* · *"quero a T3 mesmo"* · *"vou
+querer, como é que faz?"*.
+Este estágio é carimbado pela tool `registrar_link_enviado` — quem manda o link move o lead,
+sem depender de o modelo lembrar de fazer as duas coisas.
+
+**→ Venda** (`convertido`) — mover **somente** quando o cliente **confirma por palavra** que
+comprou ou concluiu o cadastro pelo link. Não há integração que informe isso; a confirmação
+vem da conversa.
+
+Exemplos: *"comprei"* · *"finalizei o cadastro"* · *"já paguei"* · *"deu certo, tá aprovado"*.
+**Não** conta: *"vou comprar"* · *"tô preenchendo"* · *"acho que consegui"* — nesses casos ela
+pergunta se concluiu, e só move com a confirmação.
+
+Este é o critério mais rígido dos quatro, porque `Purchase` com valor é o sinal mais forte
+que vai para a Meta. Um `Purchase` falso ensina o algoritmo a buscar o público errado, e o
+estrago dura semanas.
+
+**Regra geral que vai no prompt:** na dúvida entre dois estágios, fica no **menor**. Mover
+para trás é permitido e não redispara evento (a dedup cuida); mover para frente cedo demais
+polui o sinal e não tem desfazer na Meta.
 
 ### Valor do `Purchase`
 

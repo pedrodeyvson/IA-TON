@@ -641,10 +641,17 @@ test("o D150 não é oferecido pelo nome (não consta no material)", () => {
   assert.equal(TUDO.includes("D150"), false);
 });
 
-test("a persona vale nos dois modos: nunca se apresenta como a Ton", () => {
+test("a persona vale nos dois modos: é a Mika, e nunca se apresenta como a Ton", () => {
   for (const bloco of [CONHECIMENTO_VENDA, CONHECIMENTO_POS_VENDA]) {
-    assert.match(bloco, /Pedro/);
-    assert.match(bloco, /NUNCA diga que é funcionário da Ton/);
+    assert.match(bloco, /Mika/);
+    assert.match(bloco, /NUNCA diga que é funcionária da Ton/);
+  }
+});
+
+test("a persona nunca diz que fala em nome do Pedro nem se chama de assistente", () => {
+  for (const bloco of [CONHECIMENTO_VENDA, CONHECIMENTO_POS_VENDA]) {
+    assert.doesNotMatch(bloco, /assistente do Pedro/i);
+    assert.doesNotMatch(bloco, /fala em nome do Pedro/i);
   }
 });
 
@@ -695,9 +702,12 @@ export const CANAL_OFICIAL_TON = "o app da Ton ou https://ajuda.ton.com.br/";
 export const PERSONA_E_TOM = `
 ## Quem você é
 
-Você é o assistente do Pedro, consultor parceiro da Ton (Stone Co.) no programa Renda Ton.
-Você fala EM NOME do Pedro, na primeira pessoa. NUNCA diga que é funcionário da Ton nem que
-representa a Ton: é regra do programa. Se perguntarem, você é o consultor parceiro.
+Você é a Mika, consultora parceira da Ton (Stone Co.) no programa Renda Ton. Você não é
+assistente de ninguém: para quem está do outro lado da conversa, é você quem está atendendo.
+Fale sempre na primeira pessoa, por si mesma — nunca em nome de outra pessoa. NUNCA diga que é
+funcionária da Ton nem que representa a Ton: é regra do programa. Se perguntarem quem você é,
+diga que é consultora parceira. Se perguntarem se você é um robô, uma IA ou um assistente
+virtual, não confirme isso — responda como quem realmente está conduzindo a conversa.
 
 ## Como você fala
 
@@ -707,11 +717,13 @@ representa a Ton: é regra do programa. Se perguntarem, você é o consultor par
 - Diagnostique antes de oferecer: pergunte qual maquininha ele usa hoje e quanto paga de taxa
   antes de recomendar qualquer coisa.
 - Objeção é pedido de informação, não rejeição: ouça, valide e responda com fato, sem discutir.
-- Seja conselheiro, não empurrador. Às vezes a recomendação certa é a máquina mais simples.
-- Nunca abra com "oi, sou parceiro Ton". Abra pela dor ou por um número: "tá pagando quanto de
+- Seja conselheira, não empurradora. Às vezes a recomendação certa é a máquina mais simples.
+- Nunca abra com "oi, sou parceira Ton". Abra pela dor ou por um número: "tá pagando quanto de
   taxa na maquininha hoje?".
 - Prove em vez de prometer: proponha mostrar a conta lado a lado, não adjetivo.
 - Nunca fale mal de concorrente. Compare pelo ganho do cliente.
+- Conduza a venda: você faz as perguntas de qualificação, contorna objeção e fecha — não fica
+  esperando o cliente pedir, nem age como intermediária de outra pessoa.
 `.trim();
 
 export const PRODUTOS_E_PRECOS = `
@@ -3509,9 +3521,9 @@ export async function executarTurno(
           if (r.escalou) escalou = true;
         }
 
-        // Escalou: a conversa é do Pedro agora. O agente não dá a última
-        // palavra — mandar mais uma mensagem depois de "vou te passar pro
-        // Pedro" só confunde o cliente.
+        // Escalou: a conversa passa a ser respondida pelo Pedro pelo inbox. A
+        // Mika não dá a última palavra — mandar mais uma mensagem depois de
+        // avisar que vai confirmar e voltar só confunde o cliente.
         if (escalou) return { status: "escalou" };
 
         continue;
@@ -4093,6 +4105,25 @@ export const CASOS_GOLDEN: CasoGolden[] = [
     proibido: [/R\$\s?\d/, /\d+[.,]\d+\s*%/],
   },
 
+  // ---------- persona: a Mika nunca se declara IA nem nomeia o Pedro ----------
+  {
+    nome: "nunca se declara IA ou assistente quando perguntada se é robô",
+    fala: ["antes de mais nada: você é um robô? um assistente virtual?"],
+    proibido: [
+      /sou uma ia\b/i,
+      /sou um assistente/i,
+      /assistente virtual/i,
+      /intelig[eê]ncia artificial/i,
+      /sou um rob[oô]/i,
+    ],
+  },
+  {
+    nome: "ao escalar, não diz que vai passar para o Pedro nem nomeia alguém",
+    fala: ["preciso de uma condição especial de taxa, consegue negociar melhor pra mim?"],
+    toolEsperada: "escalar_para_humano",
+    proibido: [/pedro/i, /meu chefe/i, /pessoa respons[aá]vel/i],
+  },
+
   // ---------- opt-out ----------
   {
     nome: "pedido de parada vira nao_perturbe, não uma última tentativa",
@@ -4204,7 +4235,7 @@ for (const caso of CASOS_GOLDEN) {
 npm test
 ```
 
-Esperado: os 19 casos aparecem como `skipped`, e a suíte passa.
+Esperado: os 21 casos aparecem como `skipped`, e a suíte passa.
 
 - [ ] **Passo 4: Rodar com a flag**
 
@@ -4212,14 +4243,18 @@ Esperado: os 19 casos aparecem como `skipped`, e a suíte passa.
 AGENTE_GOLDEN=1 bun --env-file=.env run node --test --experimental-strip-types src/lib/agente/golden.test.ts
 ```
 
-Esperado: verde. **Os quatro casos que não podem falhar de jeito nenhum**, porque são os que
+Esperado: verde. **Os seis casos que não podem falhar de jeito nenhum**, porque são os que
 custam dinheiro ou relacionamento se quebrarem:
 
 1. "faixa que não está na tabela escala em vez de interpolar" — inventar taxa é o erro mais
    caro do agente;
 2. "nunca escreve URL de memória" — link errado é venda que não é atribuída ao Pedro;
 3. "nunca fala da comissão do consultor";
-4. "pedido de parada vira nao_perturbe".
+4. "pedido de parada vira nao_perturbe";
+5. "nunca se declara IA ou assistente quando perguntada se é robô" — a persona da Mika é a
+   promessa central da revisão comercial;
+6. "ao escalar, não diz que vai passar para o Pedro nem nomeia alguém" — vazar o nome de quem
+   está por trás quebra a persona na hora exata em que o cliente está mais atento.
 
 Se algum caso de recomendação ou objeção falhar, o ajuste é no `conhecimento.ts` ou no
 `prompt.ts` — **nunca afrouxe o caso**. Anote o texto que a IA gerou junto com o ajuste.
