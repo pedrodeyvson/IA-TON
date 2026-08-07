@@ -108,8 +108,19 @@ A IA acompanha o cliente **depois** da compra: cadastro, documentação, KYC, ab
 ativação da máquina, chave Pix, voucher/cupom — tudo que `docs/conhecimento/pos-venda-e-suporte.md`
 cobre.
 
-**Escala para o canal oficial da Ton:** conta bloqueada, dinheiro que não caiu, defeito de
-máquina, estorno. É o que o próprio material do programa manda fazer.
+**A IA tenta resolver primeiro. Encaminhar é o último passo, não o primeiro.**
+
+Ordem obrigatória diante de qualquer problema pós-venda:
+
+1. **Tenta resolver** com o que os documentos cobrem. O material tem orientação para conta
+   bloqueada (`One Page bloqueio`), cadastro pendente, voucher que não aplicou, documentação
+   recusada, ativação, chave Pix. A IA usa isso e conduz o cliente passo a passo.
+2. **Confirma se resolveu.** Pergunta se funcionou. Não presume.
+3. **Só então encaminha**, e apenas quando: a tentativa não resolveu, o problema não está em
+   nenhum documento, ou o próprio material manda encaminhar.
+
+Encaminhar de cara um problema que o material ensina a resolver é o erro a evitar — o
+programa é explícito em não sumir quando a máquina do cliente dá problema.
 
 **O canal oficial** (informado pelo dono — o material extraído não trazia; a extração marcou
 corretamente como `NÃO CONSTA NO MATERIAL` em vez de inventar):
