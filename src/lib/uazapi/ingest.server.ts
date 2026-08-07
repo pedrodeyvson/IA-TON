@@ -3,6 +3,7 @@ import { classificarMensagem } from "./mensagem.ts";
 import { resolverTelefoneReal } from "./identidade.ts";
 import { extrairAtribuicaoAnuncio } from "./anuncio.ts";
 import { normalizarTelefoneBr } from "../telefone.ts";
+import { sanitizarSegmentoPath } from "./sanitizar-path.ts";
 
 export type ResultadoIngest = {
   status: "ok" | "duplicate" | "ignored" | "error";
@@ -174,17 +175,37 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     const midia = await baixarMidia(msg.providerMessageId);
     if (midia) {
       const extensao = (midia.mime.split("/")[1] ?? "bin").split(";")[0];
-      mediaPath = `${alvo.leadId}/${msg.direcao}_${msg.providerMessageId}.${extensao}`;
-      const { error: erroUpload } = await admin.storage
-        .from(BUCKET_MIDIA)
-        .upload(mediaPath, midia.bytes, { contentType: midia.mime, upsert: true });
-      if (erroUpload) mediaPath = null;
+      // providerMessageId vem do payload do WhatsApp sem garantia nenhuma de
+      // forma — sanitiza antes de virar segmento de path (evita travessia de
+      // diretório) e mantém determinístico, já que upsert:true depende disso.
+      const idSeguro = sanitizarSegmentoPath(msg.providerMessageId);
+      const candidatoPath = `${alvo.leadId}/${msg.direcao}_${idSeguro}.${extensao}`;
 
-      if (mediaPath && msg.tipo === "audio") {
-        const { transcreverDoStorage } = await import("../groq-transcribe.server.ts");
-        const r = await transcreverDoStorage(admin, BUCKET_MIDIA, mediaPath, midia.mime, "pt");
-        if (r.ok) { transcricao = r.texto; transcricaoStatus = "ok"; }
-        else { transcricaoStatus = "failed"; }
+      // O storage-js converte a maioria das falhas em `{ error }`, mas pode
+      // relançar em casos fora do padrão (ex.: corpo malformado) — sem este
+      // try/catch, uma falha de upload abortaria o insert da mensagem
+      // inteira, o que contraria o objetivo de "mídia nunca custa a mensagem".
+      try {
+        const { error: erroUpload } = await admin.storage
+          .from(BUCKET_MIDIA)
+          .upload(candidatoPath, midia.bytes, { contentType: midia.mime, upsert: true });
+        if (!erroUpload) mediaPath = candidatoPath;
+      } catch {
+        mediaPath = null;
+      }
+
+      if (msg.tipo === "audio") {
+        if (mediaPath) {
+          const { transcreverDoStorage } = await import("../groq-transcribe.server.ts");
+          const r = await transcreverDoStorage(admin, BUCKET_MIDIA, mediaPath, midia.mime, "pt");
+          if (r.ok) { transcricao = r.texto; transcricaoStatus = "ok"; }
+          else { transcricaoStatus = "failed"; }
+        } else {
+          // Upload falhou (ou lançou) — sem arquivo no Storage não há o que
+          // transcrever. "failed" distingue esse caso de "não é áudio"
+          // (que fica null), em vez de deixar a coluna ambígua.
+          transcricaoStatus = "failed";
+        }
       }
     }
   }

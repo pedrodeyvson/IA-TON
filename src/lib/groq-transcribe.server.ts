@@ -59,11 +59,18 @@ export async function transcreverAudio(
   }
 }
 
+/** Nunca lança: mesmo padrão de transcreverAudio — falha de download ou de
+ * leitura do Blob (ex.: storage-js relançando algo fora de StorageError, ou
+ * `.arrayBuffer()` sobre um Blob corrompido) vira resultado, não exceção. */
 export async function transcreverDoStorage(
   admin: any, bucket: string, path: string, mime: string | null, idioma = "pt",
 ): Promise<ResultadoTranscricao> {
-  const { data, error } = await admin.storage.from(bucket).download(path);
-  if (error || !data) return { ok: false, erro: error?.message ?? "download falhou" };
-  const buffer = await (data as Blob).arrayBuffer();
-  return transcreverAudio(new Uint8Array(buffer), mime ?? "audio/ogg", { idioma });
+  try {
+    const { data, error } = await admin.storage.from(bucket).download(path);
+    if (error || !data) return { ok: false, erro: error?.message ?? "download falhou" };
+    const buffer = await (data as Blob).arrayBuffer();
+    return transcreverAudio(new Uint8Array(buffer), mime ?? "audio/ogg", { idioma });
+  } catch (err: any) {
+    return { ok: false, erro: err?.message ?? "erro desconhecido" };
+  }
 }
