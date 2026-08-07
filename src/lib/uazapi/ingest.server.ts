@@ -68,7 +68,12 @@ async function buscarLeadExistente(
 async function acharOuCriarLead(
   admin: any,
   item: any,
-): Promise<{ leadId: string; conversaId: string } | null> {
+): Promise<{
+  leadId: string;
+  conversaId: string;
+  leadNovo: boolean;
+  atribuicao: ReturnType<typeof extrairAtribuicaoAnuncio>;
+} | null> {
   const { telefone, jid } = resolverTelefoneReal(item, item?.key ?? {});
   const normalizado = normalizarTelefoneBr(telefone);
   const atribuicao = extrairAtribuicaoAnuncio(item?.content);
@@ -79,6 +84,7 @@ async function acharOuCriarLead(
   if (!normalizado && !externalId) return null;
 
   let leadId = await buscarLeadExistente(admin, normalizado, externalId);
+  const leadNovo = !leadId;
 
   if (!leadId) {
     const { data, error } = await admin.from("leads").insert({
@@ -133,7 +139,9 @@ async function acharOuCriarLead(
 
   const { data: conversaExistente } = await admin
     .from("conversas").select("id").eq("lead_id", leadId).maybeSingle();
-  if (conversaExistente?.id) return { leadId: leadId!, conversaId: conversaExistente.id };
+  if (conversaExistente?.id) {
+    return { leadId: leadId!, conversaId: conversaExistente.id, leadNovo, atribuicao };
+  }
 
   const { data: novaConversa, error: erroConversa } = await admin
     .from("conversas").insert({ lead_id: leadId }).select("id").single();
@@ -146,13 +154,13 @@ async function acharOuCriarLead(
       const { data: conversaConcorrente } = await admin
         .from("conversas").select("id").eq("lead_id", leadId).maybeSingle();
       if (conversaConcorrente?.id) {
-        return { leadId: leadId!, conversaId: conversaConcorrente.id };
+        return { leadId: leadId!, conversaId: conversaConcorrente.id, leadNovo, atribuicao };
       }
     }
     throw new Error(erroConversa.message);
   }
 
-  return { leadId: leadId!, conversaId: novaConversa.id };
+  return { leadId: leadId!, conversaId: novaConversa.id, leadNovo, atribuicao };
 }
 
 async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> {
@@ -172,6 +180,34 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
 
   const alvo = await acharOuCriarLead(admin, item);
   if (!alvo) return { status: "ignored" };
+
+  // Dispara LeadSubmitted na Meta CAPI para lead novo com atribuição de
+  // anúncio (ctwa_clid e/ou ad_source_id — um lead às vezes chega com
+  // source_id sem ctwa_clid, e isso ainda é sinal de atribuição válido, não
+  // só o ctwa_clid). Sempre aguardado (await): uma chamada fire-and-forget
+  // pode ser descartada pelo runtime ao responder o HTTP antes do fetch
+  // terminar, e o evento nunca chega na Meta. Best-effort — envolto em
+  // try/catch para que uma falha do CAPI nunca custe o processamento da
+  // mensagem (mesmo princípio já usado para mídia acima).
+  if (alvo.leadNovo && alvo.atribuicao && (alvo.atribuicao.ctwaClid || alvo.atribuicao.adSourceId)) {
+    try {
+      const { enviarEventoCapi } = await import("../capi/capi.server.ts");
+      const { telefone } = resolverTelefoneReal(item, item?.key ?? {});
+      await enviarEventoCapi(
+        admin,
+        alvo.leadId,
+        "LeadSubmitted",
+        {
+          ctwaClid: alvo.atribuicao.ctwaClid,
+          telefone: telefone || null,
+          nome: item?.pushName ?? item?.chat?.name ?? null,
+        },
+        alvo.atribuicao.adSourceId ? { source_id: alvo.atribuicao.adSourceId } : undefined,
+      );
+    } catch (err: any) {
+      console.warn(`[ingest] LeadSubmitted CAPI falhou para lead ${alvo.leadId}:`, err?.message ?? err);
+    }
+  }
 
   let mediaPath: string | null = null;
   let transcricao: string | null = null;
