@@ -209,14 +209,28 @@ evento, um lugar só.
 `('Lead','AddToCart','InitiateCheckout','Purchase')`, e o `LeadSubmitted` que o
 `ingest.server.ts` dispara hoje vira `Lead`.
 
-> ⚠️ **Risco a verificar empiricamente, não supor.** O CPI usa `LeadSubmitted` com
-> `action_source: "business_messaging"` e funciona. Não está confirmado que `AddToCart`
-> é aceito nesse mesmo `action_source` — a Meta documenta os eventos padrão para pixel/web,
-> e messaging tem um conjunto próprio. **Antes de implementar, dispare um evento de teste de
-> cada um dos quatro tipos contra a API real e leia a resposta.** É a mesma lição da Fatia 1,
-> onde 49 testes passavam contra fixtures inventados e a função falhava 6/6 contra payload
-> real. Se `AddToCart` for rejeitado, o dono decide entre trocar o nome do evento ou mudar o
-> `action_source` — não invente o fallback sozinho.
+**Risco levantado e resolvido pela pesquisa da própria Fatia 1.** Cheguei a marcar `AddToCart`
+como não confirmado em `business_messaging`; o relatório
+`.superpowers/sdd/2026-08-07-fatia-1-fundacao-webhook/capi-report.md` já documenta o catálogo
+aceito nesse `action_source`, e **`Lead` e `AddToCart` estão nele**. Não é preciso spike.
+
+A Fatia 1 escolheu `LeadSubmitted` e `QualifiedLead` de propósito, para caber no check de 4
+nomes sem migração — decisão registrada, não descuido. Trocar pelos padrões que o dono quer é
+só a migração do check mais a troca dos dois nomes.
+
+**O que já existe e não se reescreve** (`src/lib/capi/capi.constants.ts`):
+
+- `ESTAGIO_EVENTO_MAP` — o mapa etapa → evento, já implementado e testado
+- `ORDEM_FUNIL` + cascata — lead que pula de `novo` direto para `convertido` dispara os
+  eventos intermediários em ordem, em vez de perder sinal
+- `jaFoiEnviado` — dedup por `lead_id` + `nome_evento` com `status_resposta = "ok"`
+- `enviarEventoCapi` — nunca lança, devolve `{ok, skipped, duplicate, error}`
+
+**Ressalva honesta:** só o `LeadSubmitted` do ingest chegou a disparar contra a Meta em
+produção. Os outros três estão implementados e cobertos por teste, mas nunca rodaram de
+verdade — porque até agora nada movia o estágio do lead. É exatamente o que esta fatia liga,
+e por isso a validação em produção (última tarefa) tem que conferir os quatro na
+`eventos_capi` com `status_resposta = "ok"`.
 
 ### Os critérios: como a Mika sabe a hora de mover
 
