@@ -10,6 +10,38 @@ export type ResultadoIngest = {
   error?: string;
 };
 
+const BUCKET_MIDIA = "crm-midia";
+const TIPOS_COM_MIDIA = new Set(["audio", "imagem", "video", "documento", "sticker"]);
+
+/** A UAZAPI devolve `fileURL` (URL cacheada) em vez de base64 — bem mais leve. */
+async function baixarMidia(messageId: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  const token = process.env.UAZAPI_TOKEN;
+  if (!token) return null;
+  try {
+    const { baixarMensagem } = await import("./client.server.ts");
+    const resposta = await baixarMensagem(token, messageId);
+    const fileURL = resposta?.fileURL;
+
+    if (!fileURL) {
+      const base64 = resposta?.base64Data ?? resposta?.base64;
+      if (!base64) return null;
+      return {
+        bytes: new Uint8Array(Buffer.from(base64, "base64")),
+        mime: resposta?.mimetype ?? "application/octet-stream",
+      };
+    }
+
+    const arquivo = await fetch(fileURL, { signal: AbortSignal.timeout(20_000) });
+    if (!arquivo.ok) return null;
+    return {
+      bytes: new Uint8Array(await arquivo.arrayBuffer()),
+      mime: resposta?.mimetype ?? arquivo.headers.get("content-type") ?? "application/octet-stream",
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Busca o lead por telefone_normalizado (prioridade) e, na falta, por external_id.
 // Extraída para ser reaproveitada tanto na busca inicial quanto na recuperação
 // de corrida (23505) abaixo — os dois precisam do mesmo critério de busca.
@@ -134,6 +166,29 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
   const alvo = await acharOuCriarLead(admin, item);
   if (!alvo) return { status: "ignored" };
 
+  let mediaPath: string | null = null;
+  let transcricao: string | null = null;
+  let transcricaoStatus: string | null = null;
+
+  if (TIPOS_COM_MIDIA.has(msg.tipo) && msg.providerMessageId) {
+    const midia = await baixarMidia(msg.providerMessageId);
+    if (midia) {
+      const extensao = (midia.mime.split("/")[1] ?? "bin").split(";")[0];
+      mediaPath = `${alvo.leadId}/${msg.direcao}_${msg.providerMessageId}.${extensao}`;
+      const { error: erroUpload } = await admin.storage
+        .from(BUCKET_MIDIA)
+        .upload(mediaPath, midia.bytes, { contentType: midia.mime, upsert: true });
+      if (erroUpload) mediaPath = null;
+
+      if (mediaPath && msg.tipo === "audio") {
+        const { transcreverDoStorage } = await import("../groq-transcribe.server.ts");
+        const r = await transcreverDoStorage(admin, BUCKET_MIDIA, mediaPath, midia.mime, "pt");
+        if (r.ok) { transcricao = r.texto; transcricaoStatus = "ok"; }
+        else { transcricaoStatus = "failed"; }
+      }
+    }
+  }
+
   const { error } = await admin.from("mensagens").insert({
     conversa_id: alvo.conversaId,
     lead_id: alvo.leadId,
@@ -144,6 +199,9 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     conteudo: msg.conteudo,
     media_mime: msg.mediaMime,
     media_filename: msg.mediaFilename,
+    media_path: mediaPath,
+    transcricao,
+    transcricao_status: transcricaoStatus,
     timestamp_ms: msg.timestampMs ?? Date.now(),
     raw: item,
   });
