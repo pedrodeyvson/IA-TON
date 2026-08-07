@@ -4410,12 +4410,609 @@ git commit -m "docs: validacao ponta a ponta da Fatia 2 revisada em producao"
 
 ---
 
+## Task 13: Liga o CAPI ao funil (correção do mapa, migração, cascata e self-healing)
+
+**Por que esta tarefa existe.** O estudo comparativo com o CPI real (`docs/conhecimento/capi-replicacao-cpi.md`)
+achou dois problemas na Fatia 1: (1) `ESTAGIO_EVENTO_MAP` mapeia `qualificando → QualifiedLead`,
+mas o Kanban de 4 colunas do dono precisa do evento em `apresentando_solucao`/`contornando_objecao`
+(coluna Qualificado), com `AddToCart` no lugar de `QualifiedLead`; (2) `resolverCascataEventos`/
+`eventosParaDisparar` existem e estão testados, mas **nenhum código de produção os chama** —
+`moverEstagio` nunca dispara CAPI. Só o `LeadSubmitted` do `ingest.server.ts` dispara hoje, e só
+uma vez, sem retry. Esta tarefa fecha as duas lacunas, sem replicar o bug do CPI onde um
+`Purchase` que falha nunca é reagendado (`clearFireAfter` roda mesmo com `ok:false`).
+
+**Files:**
+- Criar: `supabase/migrations/20260808c_capi_addtocart.sql`
+- Modificar: `src/lib/capi/capi.constants.ts`
+- Modificar: `src/lib/capi/capi.constants.test.ts`
+- Modificar: `src/lib/capi/capi.server.ts`
+- Modificar: `src/lib/capi/capi.server.test.ts`
+- Modificar: `src/lib/crm/leads.server.ts`
+- Modificar: `src/lib/crm/leads.server.test.ts`
+- Modificar: `src/lib/uazapi/ingest.server.ts`
+
+**Interfaces:**
+- Consome: `enviarEventoCapi`, `eventosParaDisparar`, `resolverCascataEventos` (já existem em
+  `src/lib/capi/`); `obterLead`, `moverEstagio` (já existem em `src/lib/crm/leads.server.ts`)
+- Produz: `sincronizarEventosCapi(admin, leadId, estagioAtual, dados): Promise<void>` em
+  `capi.server.ts` — chamada tanto por `moverEstagio` (na hora da transição) quanto pelo
+  `ingest.server.ts` (self-healing, a cada mensagem nova do lead)
+
+- [ ] **Passo 1: Descobrir o nome real do constraint antes de alterar**
+
+Não assuma o nome — confirme por leitura do catálogo (mesma lição da Task 1 do plano original:
+nunca um `UPDATE` destrutivo para provar constraint, sempre `pg_constraint`):
+
+```sql
+select conname, pg_get_constraintdef(oid) as definicao
+  from pg_constraint
+ where conrelid = 'public.eventos_capi'::regclass
+   and contype = 'c';
+```
+
+Use o `conname` real no Passo 2. Se a consulta mostrar que o nome não é
+`eventos_capi_nome_evento_check` (o padrão de nomeação automática do Postgres para check
+inline), ajuste o SQL abaixo.
+
+- [ ] **Passo 2: Escrever a migração**
+
+`supabase/migrations/20260808c_capi_addtocart.sql`:
+
+```sql
+-- Troca QualifiedLead por AddToCart no catálogo de eventos CAPI. Decisão do
+-- dono: o Kanban tem 4 colunas (Novo/Qualificado/Interesse/Venda) mapeadas
+-- aos eventos padrão do Meta Ads que ELE escolheu — exceto a coluna Novo,
+-- onde a Meta recusa o evento padrão `Lead` em business_messaging (erro
+-- "Invalid parameter", documentado em CPI/src/lib/meta-capi.constants.ts:4-5
+-- com teste de guarda lá). LeadSubmitted (nome custom aceito) continua.
+alter table public.eventos_capi drop constraint eventos_capi_nome_evento_check;
+alter table public.eventos_capi add constraint eventos_capi_nome_evento_check
+  check (nome_evento in ('LeadSubmitted','AddToCart','InitiateCheckout','Purchase'));
+```
+
+- [ ] **Passo 3: Aplicar e verificar**
+
+Aplique via MCP do Supabase (projeto `fqnvwrhetpnwsxqfwxnf`) e confirme por leitura:
+
+```sql
+select pg_get_constraintdef(oid) from pg_constraint
+ where conrelid = 'public.eventos_capi'::regclass and contype = 'c';
+```
+
+Esperado: a definição contém `AddToCart`, não contém `QualifiedLead`.
+
+- [ ] **Passo 4: Escrever os testes que falham — `capi.constants.ts`**
+
+Abra `src/lib/capi/capi.constants.test.ts`. Os testes atuais fixam o mapa antigo — você vai
+**substituir** as asserções que citam `QualifiedLead`/`qualificando`, não adicionar do lado.
+Localize e troque:
+
+```ts
+test("ESTAGIO_EVENTO_MAP mapeia só 4 estágios para evento, igual à constraint de eventos_capi", () => {
+  assert.equal(ESTAGIO_EVENTO_MAP["novo"], "LeadSubmitted");
+  assert.equal(ESTAGIO_EVENTO_MAP["qualificando"], null);
+  assert.equal(ESTAGIO_EVENTO_MAP["apresentando_solucao"], "AddToCart");
+  assert.equal(ESTAGIO_EVENTO_MAP["contornando_objecao"], "AddToCart");
+  assert.equal(ESTAGIO_EVENTO_MAP["link_enviado"], "InitiateCheckout");
+  assert.equal(ESTAGIO_EVENTO_MAP["acompanhamento"], null);
+  assert.equal(ESTAGIO_EVENTO_MAP["convertido"], "Purchase");
+  assert.equal(ESTAGIO_EVENTO_MAP["perdido"], null);
+});
+
+test("EVENTOS_CAPI_VALIDOS bate exatamente com a constraint check de eventos_capi.nome_evento", () => {
+  assert.deepEqual([...EVENTOS_CAPI_VALIDOS], ["LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase"]);
+});
+
+test("resolverCascataEventos: novo->link_enviado inclui LeadSubmitted, AddToCart e InitiateCheckout", () => {
+  const r = resolverCascataEventos("link_enviado");
+  assert.deepEqual(r, [
+    { estagio: "novo", evento: "LeadSubmitted" },
+    { estagio: "apresentando_solucao", evento: "AddToCart" },
+    { estagio: "link_enviado", evento: "InitiateCheckout" },
+  ]);
+});
+
+test("resolverCascataEventos: cascata completa novo->convertido dispara os 4 eventos em ordem, sem repetir AddToCart", () => {
+  const r = resolverCascataEventos("convertido");
+  // apresentando_solucao E contornando_objecao mapeiam pro mesmo AddToCart —
+  // a cascata pega o evento na primeira etapa que o produz e não repete.
+  assert.deepEqual(r.map((x) => x.evento), [
+    "LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase",
+  ]);
+});
+
+test("eventosParaDisparar: pula evento já enviado por nome (LeadSubmitted do ingest)", () => {
+  const r = eventosParaDisparar("link_enviado", ["LeadSubmitted"]);
+  assert.deepEqual(r, [
+    { estagio: "apresentando_solucao", evento: "AddToCart" },
+    { estagio: "link_enviado", evento: "InitiateCheckout" },
+  ]);
+});
+
+test("eventosParaDisparar: lead que pula direto para convertido dispara a cascata inteira", () => {
+  const r = eventosParaDisparar("convertido", []);
+  assert.deepEqual(r.map((x) => x.evento), [
+    "LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase",
+  ]);
+});
+
+test("eventosParaDisparar: nada a disparar quando a cascata inteira já saiu", () => {
+  const r = eventosParaDisparar("convertido", ["LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase"]);
+  assert.deepEqual(r, []);
+});
+
+test("qualificando não dispara evento próprio — ainda é a coluna Novo do Kanban", () => {
+  const r = resolverCascataEventos("qualificando");
+  assert.deepEqual(r, [{ estagio: "novo", evento: "LeadSubmitted" }]);
+});
+```
+
+Mantenha os demais testes do arquivo (`ORDEM_FUNIL`, `jaFoiEnviado`, `resolverEventoEstagio`
+para estágio desconhecido) como estão — não dependem do mapa de eventos.
+
+- [ ] **Passo 5: Rodar e ver falhar**
+
+```bash
+node --test --experimental-strip-types src/lib/capi/capi.constants.test.ts
+```
+
+Esperado: FALHA nas asserções que ainda esperam `QualifiedLead`/`qualificando`.
+
+- [ ] **Passo 6: Corrigir `capi.constants.ts`**
+
+Em `src/lib/capi/capi.constants.ts`, troque:
+
+```ts
+export const EVENTOS_CAPI_VALIDOS = [
+  "LeadSubmitted",
+  "AddToCart",
+  "InitiateCheckout",
+  "Purchase",
+] as const;
+```
+
+E troque o `ESTAGIO_EVENTO_MAP`:
+
+```ts
+/** Mapeamento etapa -> evento CAPI. FIXO — não é configurável, espelha as 4
+ *  colunas do Kanban do dono: Novo (LeadSubmitted, disparado no ingest),
+ *  Qualificado (AddToCart, tanto em apresentando_solucao quanto em
+ *  contornando_objecao — mesmo evento, a cascata não duplica), Interesse
+ *  (InitiateCheckout, ao enviar o link) e Venda (Purchase, com valor).
+ *  `qualificando` e `acompanhamento` são refinamento dentro da coluna
+ *  anterior, sem evento próprio. `perdido` fica fora do funil. */
+export const ESTAGIO_EVENTO_MAP: Record<EstagioLead, EventoCapi | null> = {
+  novo: "LeadSubmitted",
+  qualificando: null,
+  apresentando_solucao: "AddToCart",
+  contornando_objecao: "AddToCart",
+  link_enviado: "InitiateCheckout",
+  acompanhamento: null,
+  convertido: "Purchase",
+  perdido: null,
+};
+```
+
+Atualize também o comentário de topo do arquivo (linhas 1-15), que hoje descreve o mapa
+antigo — troque as referências a `QualifiedLead`/`qualificando` pelo mapa novo, mantendo a
+citação do `capi-report.md` e do achado de que a Meta recusa `Lead` em business_messaging.
+
+- [ ] **Passo 7: Rodar e ver passar**
+
+```bash
+node --test --experimental-strip-types src/lib/capi/capi.constants.test.ts
+```
+
+Esperado: PASSA, todos os testes do arquivo.
+
+- [ ] **Passo 8: Escrever o teste que falha — `sincronizarEventosCapi`**
+
+Acrescente ao fim de `src/lib/capi/capi.server.test.ts` (reusa o `criarAdminFake` e o
+`stubFetch` já definidos no topo do arquivo):
+
+```ts
+import { sincronizarEventosCapi } from "./capi.server.ts";
+
+test("sincronizarEventosCapi: lead sem atribuição de anúncio não dispara nada", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  try {
+    const admin = criarAdminFake();
+    await sincronizarEventosCapi(admin, "lead-organico", "convertido", {
+      ctwaClid: null, adSourceId: null, telefone: "5511999999999", nome: "Ana",
+    });
+    assert.equal(admin._chamouFrom(), false, "lead orgânico não deveria nem consultar eventos_capi");
+  } finally {
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+  }
+});
+
+test("sincronizarEventosCapi: dispara em ordem os eventos que faltam para o estágio", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1 } });
+  try {
+    const admin = criarAdminFake([
+      { lead_id: "lead-1", nome_evento: "LeadSubmitted", status_resposta: "ok" },
+    ]);
+    await sincronizarEventosCapi(admin, "lead-1", "link_enviado", {
+      ctwaClid: "clid-1", adSourceId: null, telefone: "5511999999999", nome: "Ana",
+    });
+    const enviados = admin._tabelas.eventos_capi
+      .filter((r: any) => r.status_resposta === "ok")
+      .map((r: any) => r.nome_evento);
+    // LeadSubmitted já estava ok (não reenviado); dispara AddToCart e InitiateCheckout.
+    assert.deepEqual(enviados.filter((e: string) => e !== "LeadSubmitted"), ["AddToCart", "InitiateCheckout"]);
+  } finally {
+    restaurarFetch();
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+  }
+});
+
+test("sincronizarEventosCapi: para na cascata quando um evento falha, não pula pro próximo", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  const restaurarFetch = stubFetch({ ok: false, status: 400, body: { error: { message: "Invalid parameter" } } });
+  try {
+    const admin = criarAdminFake();
+    await sincronizarEventosCapi(admin, "lead-1", "convertido", {
+      ctwaClid: "clid-1", adSourceId: null, telefone: null, nome: null,
+    });
+    const nomes = admin._tabelas.eventos_capi.map((r: any) => r.nome_evento);
+    // Só tentou o primeiro (LeadSubmitted) e parou — não tentou AddToCart/InitiateCheckout/Purchase.
+    assert.deepEqual(nomes, ["LeadSubmitted"]);
+  } finally {
+    restaurarFetch();
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+  }
+});
+
+test("sincronizarEventosCapi: Purchase leva a comissão estimada como value em BRL", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  let payloadCapturado: any = null;
+  const original = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, opts: any) => {
+    payloadCapturado = JSON.parse(opts.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ events_received: 1 }) };
+  };
+  try {
+    const admin = criarAdminFake([
+      { lead_id: "lead-1", nome_evento: "LeadSubmitted", status_resposta: "ok" },
+      { lead_id: "lead-1", nome_evento: "AddToCart", status_resposta: "ok" },
+      { lead_id: "lead-1", nome_evento: "InitiateCheckout", status_resposta: "ok" },
+    ]);
+    await sincronizarEventosCapi(admin, "lead-1", "convertido", {
+      ctwaClid: "clid-1", adSourceId: "AD1", telefone: null, nome: null, comissaoEstimada: 590,
+    });
+    assert.equal(payloadCapturado.data[0].event_name, "Purchase");
+    assert.equal(payloadCapturado.data[0].custom_data.value, 590);
+    assert.equal(payloadCapturado.data[0].custom_data.currency, "BRL");
+  } finally {
+    (globalThis as any).fetch = original;
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+  }
+});
+
+test("sincronizarEventosCapi: Purchase sem comissão gravada usa COMISSAO_PADRAO_BRL", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.COMISSAO_PADRAO_BRL = "500";
+  let payloadCapturado: any = null;
+  const original = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, opts: any) => {
+    payloadCapturado = JSON.parse(opts.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ events_received: 1 }) };
+  };
+  try {
+    const admin = criarAdminFake([
+      { lead_id: "lead-1", nome_evento: "LeadSubmitted", status_resposta: "ok" },
+      { lead_id: "lead-1", nome_evento: "AddToCart", status_resposta: "ok" },
+      { lead_id: "lead-1", nome_evento: "InitiateCheckout", status_resposta: "ok" },
+    ]);
+    await sincronizarEventosCapi(admin, "lead-1", "convertido", {
+      ctwaClid: "clid-1", adSourceId: null, telefone: null, nome: null, comissaoEstimada: null,
+    });
+    assert.equal(payloadCapturado.data[0].custom_data.value, 500);
+  } finally {
+    (globalThis as any).fetch = original;
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+    delete process.env.COMISSAO_PADRAO_BRL;
+  }
+});
+
+test("sincronizarEventosCapi: nunca lança, mesmo se a consulta a eventos_capi falhar", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  try {
+    const adminQuebrado = { from() { throw new Error("conexão caiu"); } };
+    await assert.doesNotReject(() =>
+      sincronizarEventosCapi(adminQuebrado, "lead-1", "convertido", { ctwaClid: "clid-1" }),
+    );
+  } finally {
+    delete process.env.META_PIXEL_ID;
+    delete process.env.META_CAPI_TOKEN;
+  }
+});
+```
+
+- [ ] **Passo 9: Rodar e ver falhar**
+
+```bash
+node --test --experimental-strip-types src/lib/capi/capi.server.test.ts
+```
+
+Esperado: FALHA com "sincronizarEventosCapi is not a function" (ou similar).
+
+- [ ] **Passo 10: Implementar `sincronizarEventosCapi`**
+
+Acrescente ao fim de `src/lib/capi/capi.server.ts` (depois de `enviarEventoCapi`, mesmo
+arquivo — os imports de `eventosParaDisparar` e `EventoCapi` já existem no topo; adicione
+`eventosParaDisparar` ao import existente de `./capi.constants.ts`):
+
+```ts
+export type DadosParaSincronizar = {
+  /** Presença de ctwaClid OU adSourceId é o que decide se o lead tem
+   *  atribuição de anúncio. Sem nenhum dos dois, é lead orgânico — a Meta
+   *  não tem como atribuir a conversão, e não faz sentido nem consultar o
+   *  banco. */
+  ctwaClid?: string | null;
+  adSourceId?: string | null;
+  telefone?: string | null;
+  nome?: string | null;
+  /** BRL. Ausente cai no padrão de COMISSAO_PADRAO_BRL, se configurado. */
+  comissaoEstimada?: number | null;
+};
+
+/**
+ * Dispara, em ordem de cascata, os eventos que faltam para o estágio atual
+ * do lead. Chamada em dois lugares: (1) por moverEstagio, na hora da
+ * transição; (2) pelo ingest.server.ts a cada mensagem nova do lead — é o
+ * self-healing, porque um evento que falhou numa tentativa anterior é
+ * retentado sem precisar de uma nova transição de estágio.
+ *
+ * Para na cascata assim que um evento falhar: não teria sentido tentar
+ * Purchase se InitiateCheckout ainda não saiu, e a próxima chamada (próxima
+ * mensagem do lead, ou próxima transição) retoma dali. É a correção
+ * deliberada do bug do CPI, onde o agendamento é limpo mesmo com falha e um
+ * Purchase que não saiu nunca mais é tentado.
+ *
+ * Nunca lança — best-effort, como toda a integração de CAPI.
+ */
+export async function sincronizarEventosCapi(
+  admin: any,
+  leadId: string,
+  estagioAtual: string,
+  dados: DadosParaSincronizar,
+): Promise<void> {
+  if (!dados.ctwaClid && !dados.adSourceId) return;
+
+  try {
+    const { data: existentes } = await admin
+      .from("eventos_capi")
+      .select("nome_evento, status_resposta")
+      .eq("lead_id", leadId);
+
+    const jaEnviados = (existentes ?? [])
+      .filter((r: any) => r.status_resposta === "ok")
+      .map((r: any) => r.nome_evento);
+
+    const pendentes = eventosParaDisparar(estagioAtual, jaEnviados);
+    const valorPadrao = Number(process.env.COMISSAO_PADRAO_BRL ?? "");
+    const valorPurchase =
+      dados.comissaoEstimada ?? (Number.isFinite(valorPadrao) && valorPadrao > 0 ? valorPadrao : undefined);
+
+    for (const { evento } of pendentes) {
+      const customData =
+        evento === "Purchase"
+          ? { value: valorPurchase, currency: "BRL", source_id: dados.adSourceId ?? undefined }
+          : dados.adSourceId
+            ? { source_id: dados.adSourceId }
+            : undefined;
+
+      const resultado = await enviarEventoCapi(
+        admin,
+        leadId,
+        evento,
+        { ctwaClid: dados.ctwaClid, telefone: dados.telefone, nome: dados.nome },
+        customData,
+      );
+
+      if (!resultado.ok) break;
+    }
+  } catch (err: any) {
+    console.warn(`[capi] falha ao sincronizar eventos do lead ${leadId}:`, err?.message ?? err);
+  }
+}
+```
+
+- [ ] **Passo 11: Rodar e ver passar**
+
+```bash
+node --test --experimental-strip-types src/lib/capi/capi.server.test.ts
+```
+
+Esperado: PASSA, todos os testes (os 5 já existentes + os 6 novos).
+
+- [ ] **Passo 12: Escrever o teste que falha — `moverEstagio` dispara o CAPI**
+
+Acrescente a `src/lib/crm/leads.server.test.ts`:
+
+```ts
+test("moverEstagio sincroniza CAPI depois de gravar a transição, com os dados do lead", async () => {
+  const chamadas: any[] = [];
+  const admin = criarAdminFake({
+    "leads.select": {
+      data: {
+        id: "L1", estagio: "novo", ctwa_clid: "clid-1", ad_source_id: null,
+        telefone: "5511999999999", nome: "Ana", comissao_estimada: null,
+      },
+      error: null,
+    },
+  });
+  // Substitui o módulo real por um espião — moverEstagio importa
+  // dinamicamente "../capi/capi.server.ts", então mockar globalThis não
+  // funciona aqui; em vez disso, injete via variável de módulo se o
+  // implementador optar por import estático com parâmetro de dependência,
+  // OU verifique indiretamente que uma linha em eventos_capi foi tentada
+  // (ver Passo 13 para a abordagem recomendada, caso prefira testar via
+  // efeito observável em vez de espião de import).
+});
+
+test("moverEstagio não deixa a transição falhar se a sincronização de CAPI der erro", async () => {
+  const admin = criarAdminFake({
+    "leads.select": {
+      data: { id: "L1", estagio: "novo", ctwa_clid: "clid-quebrado", telefone: null, nome: null },
+      error: null,
+    },
+  });
+  // Sem META_PIXEL_ID/META_CAPI_TOKEN configurado, sincronizarEventosCapi
+  // real degrada em silêncio (skipped) — não lança. Isso já prova que
+  // moverEstagio não quebra mesmo com CAPI mal configurado.
+  delete process.env.META_PIXEL_ID;
+  delete process.env.META_CAPI_TOKEN;
+  const mudou = await moverEstagio(admin, "L1", "qualificando");
+  assert.equal(mudou, true, "a transição tem que acontecer mesmo sem CAPI configurado");
+});
+```
+
+> **Nota para o implementador:** o primeiro teste acima é deliberadamente incompleto — decida
+> a forma de verificação ao implementar. A opção mais simples é testar pelo efeito observável:
+> configure `META_PIXEL_ID`/`META_CAPI_TOKEN` e um `stubFetch` global (mesmo padrão de
+> `capi.server.test.ts`), chame `moverEstagio`, e confirme que uma linha nova apareceu em
+> `admin._tabelas` se você trocar `admin-fake.ts` por um fake compatível — **ou**, mais simples
+> ainda, injete `sincronizarEventosCapi` como dependência opcional de `moverEstagio` (parâmetro
+> `deps?: { sincronizarCapi? }` com default para o import dinâmico real), e no teste passe um
+> espião. Escolha a abordagem, implemente os dois testes de verdade (não deixe o comentário
+> acima como código), e documente a escolha no relatório.
+
+- [ ] **Passo 13: Implementar a chamada em `moverEstagio`**
+
+Em `src/lib/crm/leads.server.ts`, modifique `moverEstagio` (decida no Passo 12 se via injeção
+de dependência ou import dinâmico direto — se for injeção, adicione o parâmetro `deps` com
+default; o corpo abaixo mostra a versão por import dinâmico direto, mais simples):
+
+```ts
+export async function moverEstagio(
+  admin: any,
+  leadId: string,
+  para: Estagio,
+  detalheExtra: Record<string, unknown> = {},
+): Promise<boolean> {
+  const lead = await obterLead(admin, leadId);
+  if (!lead) return false;
+
+  const de = lead.estagio as Estagio;
+  const campos = camposDeTransicao(de, para, new Date().toISOString());
+  if (Object.keys(campos).length === 0) return false;
+
+  await admin.from("leads").update(campos).eq("id", leadId);
+  await registrarEvento(admin, leadId, "mudou_estagio", { de, para, ...detalheExtra });
+
+  // Alimenta o Meta Ads a cada avanço de estágio — best-effort, nunca pode
+  // custar a transição que já foi gravada. Se falhar aqui, o self-healing no
+  // ingest.server.ts tenta de novo na próxima mensagem do lead.
+  try {
+    const { sincronizarEventosCapi } = await import("../capi/capi.server.ts");
+    await sincronizarEventosCapi(admin, leadId, para, {
+      ctwaClid: lead.ctwa_clid,
+      adSourceId: lead.ad_source_id,
+      telefone: lead.telefone,
+      nome: lead.nome,
+      comissaoEstimada: lead.comissao_estimada,
+    });
+  } catch (err: any) {
+    console.warn(`[crm] falha ao sincronizar CAPI do lead ${leadId}:`, err?.message ?? err);
+  }
+
+  return true;
+}
+```
+
+- [ ] **Passo 14: Rodar e ver passar**
+
+```bash
+node --test --experimental-strip-types src/lib/crm/leads.server.test.ts
+```
+
+Esperado: PASSA, todos os testes.
+
+- [ ] **Passo 15: Self-healing no ingest — escrever o teste que falha**
+
+Se `src/lib/uazapi/ingest.server.ts` já tiver o hook de agendamento da Task 7 do plano
+original (`deveAgendarResposta` + `agendarResposta`) quando você chegar aqui, adicione a
+sincronização de CAPI **depois** desse hook, no mesmo bloco `try/catch` best-effort. Se a Task
+7 ainda não foi feita quando você pegar esta tarefa, adicione um bloco novo no mesmo lugar
+onde o `LeadSubmitted` já é disparado hoje (procure por `"[ingest] LeadSubmitted CAPI falhou"`
+em `ingest.server.ts` — é o ponto de referência).
+
+Não há teste de unidade novo para `ingest.server.ts` nesta tarefa — o arquivo não é testado
+por depender de Storage/Groq/CAPI reais (mesmo padrão já estabelecido na Fatia 1). A cobertura
+é o teste de `sincronizarEventosCapi` (Passo 8) mais a validação em produção (Task 12).
+
+- [ ] **Passo 16: Implementar o self-healing**
+
+Em `ingest.server.ts`, depois do bloco que dispara `LeadSubmitted` (ou no lugar equivalente se
+a Task 7 já estiver feita), acrescente:
+
+```ts
+  // Self-healing: retenta qualquer evento CAPI que tenha ficado pendente de
+  // uma etapa anterior, a cada mensagem nova do lead — não depende de uma
+  // transição de estágio acontecer agora. Best-effort, mesmo princípio do
+  // LeadSubmitted acima.
+  try {
+    const { sincronizarEventosCapi } = await import("../capi/capi.server.ts");
+    const leadAtual = await admin
+      .from("leads")
+      .select("estagio, ctwa_clid, ad_source_id, telefone, nome, comissao_estimada")
+      .eq("id", alvo.leadId)
+      .maybeSingle();
+    if (leadAtual.data) {
+      await sincronizarEventosCapi(admin, alvo.leadId, leadAtual.data.estagio, {
+        ctwaClid: leadAtual.data.ctwa_clid,
+        adSourceId: leadAtual.data.ad_source_id,
+        telefone: leadAtual.data.telefone,
+        nome: leadAtual.data.nome,
+        comissaoEstimada: leadAtual.data.comissao_estimada,
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[ingest] self-healing de CAPI falhou para lead ${alvo.leadId}:`, err?.message ?? err);
+  }
+```
+
+- [ ] **Passo 17: Rodar a suíte inteira**
+
+```bash
+npm test
+```
+
+Esperado: tudo verde, incluindo os testes de `ingest.server.ts` da Fatia 1 (não deveriam ter
+sido afetados — a mudança é aditiva).
+
+- [ ] **Passo 18: Commit**
+
+```bash
+git add supabase/migrations/20260808c_capi_addtocart.sql src/lib/capi/ src/lib/crm/leads.server.ts src/lib/crm/leads.server.test.ts src/lib/uazapi/ingest.server.ts
+git commit -m "feat(capi): liga a cascata ao funil, troca QualifiedLead por AddToCart, self-healing"
+```
+
+---
+
 ## Fechamento da fatia
 
 - [ ] `npm test` verde
 - [ ] Golden set rodado com `AGENTE_GOLDEN=1`; os quatro casos inegociáveis passando
 - [ ] Validação ponta a ponta registrada (Task 12), com o texto real da IA
 - [ ] Os quatro links de checkout e o do catálogo abertos no navegador pelo menos uma vez
+- [ ] Os quatro eventos CAPI (`LeadSubmitted`, `AddToCart`, `InitiateCheckout`, `Purchase`)
+      confirmados na tabela `eventos_capi` com `status_resposta = "ok"` contra a Meta real
+      (Task 13) — até esta fatia, só `LeadSubmitted` tinha rodado de fato em produção
 - [ ] Atualizar a memória do projeto (`project_ton-crm-ia.md`): Fatia 2 completa, o que o agente
       sabe agora, e as pendências que sobraram
 - [ ] Decidir com o dono: mesclar `fatia-1-fundacao` **e** `fatia-2-agente-crm` em `main` e
@@ -4432,5 +5029,8 @@ git commit -m "docs: validacao ponta a ponta da Fatia 2 revisada em producao"
 - **Prazo de aprovação e de entrega** continuam `NÃO CONSTA NO MATERIAL` — o agente encaminha.
 - Rotacionar as credenciais que passaram pelo chat na Fatia 1.
 - Capturar payload real de áudio (mídia ainda só foi testada com dado inventado).
-- `LeadSubmitted` do CAPI só dispara em lead novo, sem self-heal.
 - Visão (imagem do lead) continua fora: imagem entra como marcador de texto.
+- Envio de foto/vídeo pela IA (catálogo curado do "Arsenal de vendas") — adiado de propósito
+  para depois do primeiro teste real, decisão do dono: mídia amplifica agente que já vende,
+  e "quanto é demais" só se calibra vendo conversa real.
+- `TONMEGA_TIER_D150` sem nome comercial — nenhum documento cita esse modelo (Task 3).
