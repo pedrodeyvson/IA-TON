@@ -17,8 +17,10 @@ export type Database = {
       conversas: {
         Row: {
           assumida_em: string | null
+          ciclo_pausado_ate: string | null
           criado_em: string
           followup_enviado: boolean
+          followup_toque: number
           id: string
           lead_id: string
           motivo_agendamento: string | null
@@ -30,8 +32,10 @@ export type Database = {
         }
         Insert: {
           assumida_em?: string | null
+          ciclo_pausado_ate?: string | null
           criado_em?: string
           followup_enviado?: boolean
+          followup_toque?: number
           id?: string
           lead_id: string
           motivo_agendamento?: string | null
@@ -43,8 +47,10 @@ export type Database = {
         }
         Update: {
           assumida_em?: string | null
+          ciclo_pausado_ate?: string | null
           criado_em?: string
           followup_enviado?: boolean
+          followup_toque?: number
           id?: string
           lead_id?: string
           motivo_agendamento?: string | null
@@ -155,6 +161,7 @@ export type Database = {
           maquina_interesse: string | null
           motivo_perdido: string | null
           nao_lidas: number
+          nao_perturbe: boolean
           nome: string | null
           origem: string | null
           precisa_atencao: boolean
@@ -184,6 +191,7 @@ export type Database = {
           maquina_interesse?: string | null
           motivo_perdido?: string | null
           nao_lidas?: number
+          nao_perturbe?: boolean
           nome?: string | null
           origem?: string | null
           precisa_atencao?: boolean
@@ -213,6 +221,7 @@ export type Database = {
           maquina_interesse?: string | null
           motivo_perdido?: string | null
           nao_lidas?: number
+          nao_perturbe?: boolean
           nome?: string | null
           origem?: string | null
           precisa_atencao?: boolean
