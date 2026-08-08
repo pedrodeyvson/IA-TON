@@ -17,6 +17,7 @@
 - **Alias `@/` funciona no bundler** (`vite-tsconfig-paths`), mas **não** no `node --test`. Módulos com teste usam import relativo com extensão `.ts` explícita e não importam `@/...` no topo.
 - **Toda `createServerFn` em `crm.functions.ts` leva `.middleware([registrarErros, exigirSessao])`.** As únicas exceções em todo o projeto são `entrar` e `sair`, em `auth.functions.ts`. O client é de service role e passa por cima do RLS — o middleware é a única fronteira.
 - **Injeção de dependência para teste** segue o padrão existente (`DepsEnvio`, `DepsMoverEstagio`): parâmetro `deps` opcional, no fim da assinatura, nunca passado em produção.
+- **Validação de entrada usa `.validator(...)`, nunca `.inputValidator(...)`.** Na versão instalada do TanStack Start (1.168.38) `inputValidator` ainda funciona, mas está marcado `@deprecated` nos tipos (`start-client-core/dist/esm/createServerFn.d.ts:81`) como alias de `validator`. O teste do invariante da Task 5 exige a forma nova.
 - **Idioma:** nomes de arquivo, funções, variáveis e comentários em português, como todo o código existente.
 - **Rodar a suíte inteira:** `bun run test` (que é `node --test --experimental-strip-types "src/**/*.test.ts"`).
 - **Baseline do TypeScript:** `bunx tsc --noEmit` já reportava **7 erros antes desta fatia começar**, todos em arquivos de teste pré-existentes e nenhum em código de produção:
@@ -330,7 +331,7 @@ const entradaLogin = z.object({
 
 export const entrar = createServerFn({ method: "POST" })
   .middleware([registrarErros])
-  .inputValidator((dados: unknown) => entradaLogin.parse(dados))
+  .validator((dados: unknown) => entradaLogin.parse(dados))
   .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { criarClienteDeSessao } = await import("./sessao.server.ts");
     const cliente = await criarClienteDeSessao();
@@ -765,9 +766,12 @@ test("toda server function do CRM valida a entrada ou não recebe nenhuma", () =
     const corpo = corpoDaDeclaracao(FONTE_CRM, nome);
     const recebeDados = /handler\(\s*async\s*\(\s*\{\s*data/.test(corpo);
     if (recebeDados) {
+      // `.validator(` e não `.inputValidator(`: este último é alias
+      // @deprecated na versão instalada do TanStack Start, e o regex recusá-lo
+      // é o que impede a API antiga de voltar sem ninguém notar.
       assert.ok(
-        /\.inputValidator\(/.test(corpo),
-        `${nome} lê data sem inputValidator — entrada não validada`,
+        /\.validator\(/.test(corpo),
+        `${nome} lê data sem validator — entrada não validada`,
       );
     }
   }
@@ -808,7 +812,7 @@ export const listarConversasDoInbox = createServerFn({ method: "GET" })
 
 export const listarMensagensDaConversa = createServerFn({ method: "GET" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z
       .object({
         conversaId: z.string().uuid(),
@@ -826,7 +830,7 @@ export const listarMensagensDaConversa = createServerFn({ method: "GET" })
 
 export const obterLeadDoCrm = createServerFn({ method: "GET" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porLead.parse(dados))
+  .validator((dados: unknown) => porLead.parse(dados))
   .handler(async ({ data }): Promise<any | null> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { obterLead } = await import("./leads.server.ts");
@@ -835,7 +839,7 @@ export const obterLeadDoCrm = createServerFn({ method: "GET" })
 
 export const listarTarefasDoCrm = createServerFn({ method: "GET" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z.object({ apenasAbertas: z.boolean().default(true), leadId: z.string().uuid().optional() }).parse(dados),
   )
   .handler(async ({ data }): Promise<any[]> => {
@@ -855,7 +859,7 @@ export const listarTarefasDoCrm = createServerFn({ method: "GET" })
  */
 export const obterUrlDeMidia = createServerFn({ method: "GET" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porMensagem.parse(dados))
+  .validator((dados: unknown) => porMensagem.parse(dados))
   .handler(async ({ data }): Promise<{ url: string | null }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: mensagem } = await supabaseAdmin
@@ -1274,7 +1278,7 @@ import { ESTAGIOS } from "./estagios.ts";
 
 export const responderNoInbox = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z
       .object({
         conversaId: z.string().uuid(),
@@ -1291,7 +1295,7 @@ export const responderNoInbox = createServerFn({ method: "POST" })
 
 export const devolverParaIa = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porConversa.parse(dados))
+  .validator((dados: unknown) => porConversa.parse(dados))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { retomarIa } = await import("./conversas.server.ts");
@@ -1301,7 +1305,7 @@ export const devolverParaIa = createServerFn({ method: "POST" })
 
 export const pausarIaNaConversa = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porConversa.parse(dados))
+  .validator((dados: unknown) => porConversa.parse(dados))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { pausarIa } = await import("./conversas.server.ts");
@@ -1311,7 +1315,7 @@ export const pausarIaNaConversa = createServerFn({ method: "POST" })
 
 export const marcarConversaLida = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porLead.parse(dados))
+  .validator((dados: unknown) => porLead.parse(dados))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { marcarLida } = await import("./conversas.server.ts");
@@ -1321,7 +1325,7 @@ export const marcarConversaLida = createServerFn({ method: "POST" })
 
 export const resolverAtencao = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porLead.parse(dados))
+  .validator((dados: unknown) => porLead.parse(dados))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("leads").update({ precisa_atencao: false }).eq("id", data.leadId);
@@ -1333,7 +1337,7 @@ export const resolverAtencao = createServerFn({ method: "POST" })
 
 export const moverEstagioDoLead = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z.object({ leadId: z.string().uuid(), estagio: z.enum(ESTAGIOS) }).parse(dados),
   )
   .handler(async ({ data }): Promise<{ ok: boolean }> => {
@@ -1345,7 +1349,7 @@ export const moverEstagioDoLead = createServerFn({ method: "POST" })
 
 export const atualizarDadosDoLead = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z
       .object({
         leadId: z.string().uuid(),
@@ -1366,7 +1370,7 @@ export const atualizarDadosDoLead = createServerFn({ method: "POST" })
 
 export const registrarNotaNoLead = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z.object({ leadId: z.string().uuid(), texto: z.string().min(1).max(2000) }).parse(dados),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -1382,7 +1386,7 @@ export const registrarNotaNoLead = createServerFn({ method: "POST" })
  */
 export const alternarNaoPerturbe = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z
       .object({
         leadId: z.string().uuid(),
@@ -1404,7 +1408,7 @@ export const alternarNaoPerturbe = createServerFn({ method: "POST" })
 
 export const criarTarefaDoCrm = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z
       .object({
         leadId: z.string().uuid(),
@@ -1422,7 +1426,7 @@ export const criarTarefaDoCrm = createServerFn({ method: "POST" })
 
 export const alternarTarefaDoCrm = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) =>
+  .validator((dados: unknown) =>
     z.object({ tarefaId: z.string().uuid(), concluida: z.boolean() }).parse(dados),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
@@ -1434,7 +1438,7 @@ export const alternarTarefaDoCrm = createServerFn({ method: "POST" })
 
 export const excluirTarefaDoCrm = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => z.object({ tarefaId: z.string().uuid() }).parse(dados))
+  .validator((dados: unknown) => z.object({ tarefaId: z.string().uuid() }).parse(dados))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { excluirTarefa } = await import("./tarefas.server.ts");
@@ -1448,7 +1452,7 @@ export const excluirTarefaDoCrm = createServerFn({ method: "POST" })
  */
 export const reenviarMensagem = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
-  .inputValidator((dados: unknown) => porMensagem.parse(dados))
+  .validator((dados: unknown) => porMensagem.parse(dados))
   .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: mensagem } = await supabaseAdmin
