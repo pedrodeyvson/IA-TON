@@ -661,18 +661,21 @@ Substitui `src/routes/__root.tsx`:
 ```tsx
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
 import estilos from "../styles.css?url";
 
-const clienteQuery = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // O inbox é o único consumidor e define o próprio refetchInterval.
-      // Sem retry infinito: um 401 tem que chegar rápido na tela.
-      retry: 1,
-      refetchOnWindowFocus: true,
+function criarClienteQuery() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        // O inbox é o único consumidor e define o próprio refetchInterval.
+        // Sem retry infinito: um 401 tem que chegar rápido na tela.
+        retry: 1,
+        refetchOnWindowFocus: true,
+      },
     },
-  },
-});
+  });
+}
 
 export const Route = createRootRoute({
   head: () => ({
@@ -687,6 +690,13 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  // Dentro do componente, não no topo do módulo: o servidor é um processo Node
+  // persistente, então um client de módulo seria UM cache para todos os
+  // requests — o SSR de um usuário passaria a enxergar dados cacheados no
+  // request de outro. O useState com inicializador cria um por render de
+  // servidor e mantém o mesmo no cliente entre renders.
+  const [clienteQuery] = useState(criarClienteQuery);
+
   return (
     <html lang="pt-BR">
       <head>
