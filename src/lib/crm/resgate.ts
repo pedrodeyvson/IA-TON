@@ -51,7 +51,12 @@ export function planejarProximoResgate(
 
   // Worker que ficou fora do ar não dispara toque com data no passado — e não
   // dispara os atrasados em rajada, porque só um toque é planejado por vez.
-  const quando = Math.max(alvo, agoraMs);
+  // PISO de 2 minutos (não "agora mesmo"): agendar exatamente no instante
+  // atual deixa o toque imediatamente "vencido" pro próximo tick do worker
+  // (3s depois), o que pode encadear disparos em rajada em vez de espaçados
+  // — achado em incidente real de 08/08/2026 (17 mensagens num minuto).
+  const PISO_MS = 2 * MS_POR_MINUTO;
+  const quando = Math.max(alvo, agoraMs + PISO_MS);
 
   return { tipo: "toque", toque: proximo, quandoIso: new Date(quando).toISOString() };
 }

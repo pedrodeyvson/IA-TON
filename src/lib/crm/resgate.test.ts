@@ -55,7 +55,14 @@ test("worker atrasado não agenda toque de resgate no passado", () => {
   const agora = PRIMEIRA_MENSAGEM + 3 * 24 * 60 * MS_POR_MINUTO;
   const plano = planejarProximoResgate(0, PRIMEIRA_MENSAGEM, agora) as any;
   assert.equal(plano.toque, 1);
-  assert.equal(plano.quandoIso, new Date(agora).toISOString(), "agenda para agora, não para o passado");
+  // Nunca "agora mesmo": um toque vencendo no exato instante do agendamento
+  // fica imediatamente disponível pro próximo tick do worker (3s depois),
+  // o que pode encadear disparos em rajada — piso de 2 minutos.
+  assert.equal(
+    plano.quandoIso,
+    new Date(agora + 2 * MS_POR_MINUTO).toISOString(),
+    "agenda com um piso à frente, não exatamente agora",
+  );
 });
 
 test("primeira mensagem com data ilegível não trava o resgate", () => {

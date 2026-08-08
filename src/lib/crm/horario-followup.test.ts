@@ -73,11 +73,14 @@ test("caso real (spec §4): lead escreve 22h em SP — a cadência de resgate re
   // Toque de 6h: quando o worker for planejar o próximo (toque 2 já saiu às
   // 08:00 SP; o worker roda de novo 15min depois), o alvo bruto do toque de
   // 6h (01:00 SP do dia seguinte) já ficou no passado — planejarProximoResgate
-  // já clampa para "agora" (08:15 SP), então cai direto dentro da janela
-  // permitida, SEM precisar deslocar duas vezes.
+  // clampa para "agora + piso de 2min" (08:17 SP), então cai direto dentro da
+  // janela permitida, SEM precisar deslocar duas vezes. O piso existe pra não
+  // agendar um toque "vencendo" no exato instante do agendamento, o que
+  // encadearia disparo em rajada no próximo tick do worker (incidente real
+  // de 08/08/2026).
   const agoraDepoisDoToque2 = toque2Deslocado + 15 * 60_000; // 2026-08-09T11:15:00.000Z = 08:15 SP
   const toque3 = planejarProximoResgate(2, PRIMEIRA_MENSAGEM, agoraDepoisDoToque2) as any;
-  assert.equal(toque3.quandoIso, "2026-08-09T11:15:00.000Z");
+  assert.equal(toque3.quandoIso, "2026-08-09T11:17:00.000Z"); // 08:15 SP + piso de 2min
   const toque3Ms = Date.parse(toque3.quandoIso);
-  assert.equal(proximaAberturaSeSilencio(toque3Ms), toque3Ms, "08:15 SP já está aberto, não precisa deslocar de novo");
+  assert.equal(proximaAberturaSeSilencio(toque3Ms), toque3Ms, "08:17 SP já está aberto, não precisa deslocar de novo");
 });
