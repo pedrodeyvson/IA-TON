@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { comSessao } from "@/lib/auth/sessao-expirada";
 import { obterUrlDeMidia } from "@/lib/crm/crm.functions";
+import { rotuloDeHorario } from "./rotulos";
 
 /** Três aparências, não duas: confundir IA com humano faz o Pedro repetir ou
  *  contradizer o que a Mika já disse. */
@@ -32,8 +33,13 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
         className="max-w-[70%] rounded-lg px-3 py-2"
         style={{ background: FUNDO[mensagem.remetente] ?? "var(--color-lead)" }}
       >
-        <div className="mb-1 text-xs text-[var(--color-suave)]">
-          {mensagem.remetente === "lead" ? "Cliente" : mensagem.remetente === "ia" ? "Mika" : "Você"}
+        <div className="mb-1 flex items-center gap-2 text-xs text-[var(--color-suave)]">
+          <span>{mensagem.remetente === "lead" ? "Cliente" : mensagem.remetente === "ia" ? "Mika" : "Você"}</span>
+          {mensagem.timestamp_ms && (
+            <time dateTime={new Date(mensagem.timestamp_ms).toISOString()}>
+              {rotuloDeHorario(new Date(mensagem.timestamp_ms).toISOString())}
+            </time>
+          )}
         </div>
 
         {mensagem.tipo === "imagem" && midia?.url && (
