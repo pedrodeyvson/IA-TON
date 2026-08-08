@@ -1467,6 +1467,7 @@ git commit -m "feat(crm): server functions de escrita do inbox"
 
 **Files:**
 - Create: `src/components/crm/ListaConversas.tsx`
+- Create: `src/components/crm/useConversas.ts`
 - Create: `src/components/crm/rotulos.ts`
 - Create: `src/components/crm/rotulos.test.ts`
 - Modify: `src/routes/_app/inbox.tsx`
@@ -1475,6 +1476,7 @@ git commit -m "feat(crm): server functions de escrita do inbox"
 - Consumes: `listarConversasDoInbox` (Task 5).
 - Produces:
   - `rotuloDeEstagio(estagio: string): string` e `resumoDaLinha(conversa: any): { titulo: string; assumida: boolean }` em `rotulos.ts`
+  - `useConversas()` em `useConversas.ts` — a query compartilhada do inbox. **As Tasks 10 e 12 consomem este hook; nenhuma delas repete o bloco de `useQuery`.**
   - `<ListaConversas />`, que se vira sozinho com os próprios dados (nenhuma prop)
 
 - [ ] **Step 1: Escrever o teste dos rótulos**
@@ -1556,16 +1558,39 @@ export function resumoDaLinha(conversa: any): { titulo: string; assumida: boolea
 Run: `node --test --experimental-strip-types src/components/crm/rotulos.test.ts`
 Expected: PASS, 5 testes
 
-- [ ] **Step 5: Implementar o componente**
+- [ ] **Step 5: Criar o hook compartilhado da listagem**
+
+Três telas precisam da mesma listagem (esta, a rota da conversa na Task 10 e a barra superior na Task 12). O React Query deduplica pela chave, mas o bloco de configuração não pode existir em triplicata — o intervalo de polling tem que ter um lugar só para mudar.
+
+Cria `src/components/crm/useConversas.ts`:
+
+```ts
+import { useQuery } from "@tanstack/react-query";
+import { listarConversasDoInbox } from "@/lib/crm/crm.functions";
+
+/** A listagem do inbox, compartilhada por toda tela que precisa dela.
+ *  Um usuário só: 5s de polling custa nada e dispensa a infra do Realtime. */
+export function useConversas() {
+  return useQuery({
+    queryKey: ["conversas"],
+    queryFn: () => listarConversasDoInbox(),
+    refetchInterval: 5000,
+    // Aba escondida não precisa acordar o banco a noite inteira; o
+    // refetchOnWindowFocus do root traz tudo de volta ao voltar.
+    refetchIntervalInBackground: false,
+  });
+}
+```
+
+- [ ] **Step 6: Implementar o componente**
 
 Cria `src/components/crm/ListaConversas.tsx`:
 
 ```tsx
-import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { listarConversasDoInbox } from "@/lib/crm/crm.functions";
 import { resumoDaLinha, rotuloDeEstagio } from "./rotulos";
+import { useConversas } from "./useConversas";
 
 type Filtro = "todas" | "atencao" | "assumidas";
 
@@ -1573,15 +1598,7 @@ export function ListaConversas() {
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const { conversaId } = useParams({ strict: false }) as { conversaId?: string };
 
-  const { data: conversas = [], isLoading } = useQuery({
-    queryKey: ["conversas"],
-    queryFn: () => listarConversasDoInbox(),
-    // Um usuário só: 5s de polling custa nada e dispensa a infra do Realtime.
-    refetchInterval: 5000,
-    // Aba escondida não precisa acordar o banco a noite inteira; o
-    // refetchOnWindowFocus do root traz tudo de volta ao voltar.
-    refetchIntervalInBackground: false,
-  });
+  const { data: conversas = [], isLoading } = useConversas();
 
   const visiveis = conversas.filter((c: any) => {
     if (filtro === "atencao") return c.precisa_atencao;
@@ -1661,11 +1678,11 @@ export function ListaConversas() {
 }
 ```
 
-- [ ] **Step 6: Ligar no layout do inbox**
+- [ ] **Step 7: Ligar no layout do inbox**
 
 Em `src/routes/_app/inbox.tsx`, trocar o `<p>` placeholder por `<ListaConversas />`, importando de `@/components/crm/ListaConversas`.
 
-- [ ] **Step 7: Verificar manualmente**
+- [ ] **Step 8: Verificar manualmente**
 
 Run: `bun run dev`
 
@@ -1674,11 +1691,11 @@ Run: `bun run dev`
 3. Trocar entre os três filtros e conferir que a contagem muda.
 4. Mandar uma mensagem real para o número da instância e confirmar que a linha aparece sozinha em até ~5 segundos, sem F5.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/components/crm/ListaConversas.tsx src/components/crm/rotulos.ts \
-  src/components/crm/rotulos.test.ts src/routes/_app/inbox.tsx
+git add src/components/crm/ListaConversas.tsx src/components/crm/useConversas.ts \
+  src/components/crm/rotulos.ts src/components/crm/rotulos.test.ts src/routes/_app/inbox.tsx
 git commit -m "feat(inbox): lista de conversas com filtros e polling"
 ```
 
@@ -1931,15 +1948,11 @@ Cria `src/routes/_app/inbox.$conversaId.tsx`:
 ```tsx
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  devolverParaIa,
-  listarConversasDoInbox,
-  obterLeadDoCrm,
-  pausarIaNaConversa,
-} from "@/lib/crm/crm.functions";
+import { devolverParaIa, obterLeadDoCrm, pausarIaNaConversa } from "@/lib/crm/crm.functions";
 import { CaixaDeResposta } from "@/components/crm/CaixaDeResposta";
 import { Historico } from "@/components/crm/Historico";
 import { PainelLead } from "@/components/crm/PainelLead";
+import { useConversas } from "@/components/crm/useConversas";
 
 export const Route = createFileRoute("/_app/inbox/$conversaId")({
   validateSearch: (busca: Record<string, unknown>) => ({
@@ -1960,13 +1973,8 @@ function TelaConversa() {
   });
 
   // O estado da IA vive na conversa, que já vem na listagem do inbox —
-  // reaproveita o cache em vez de uma consulta só para isso.
-  const { data: conversas = [] } = useQuery({
-    queryKey: ["conversas"],
-    queryFn: () => listarConversasDoInbox(),
-    refetchInterval: 5000,
-    refetchIntervalInBackground: false,
-  });
+  // reaproveita o cache do hook em vez de uma consulta só para isso.
+  const { data: conversas = [] } = useConversas();
   const conversa = conversas
     .flatMap((l: any) => l.conversas ?? [])
     .find((c: any) => c.id === conversaId);
@@ -2011,7 +2019,16 @@ function TelaConversa() {
 }
 ```
 
-`PainelLead` chega na Task 11 — implemente esta rota junto dela, ou crie um stub `export function PainelLead() { return null }` para rodar a verificação desta task e substitua na seguinte.
+`PainelLead` só ganha corpo na Task 11. Para esta task compilar e ser verificável, crie o arquivo `src/components/crm/PainelLead.tsx` com um stub — e **exatamente com esta assinatura**, que é a que a Task 11 vai preencher:
+
+```tsx
+// Stub — o corpo chega na Task 11.
+export function PainelLead(_props: { leadId: string; conversaId: string }) {
+  return <aside className="border-l border-[var(--color-borda)] p-4">Painel do lead (Task 11)</aside>;
+}
+```
+
+Inclua esse arquivo no commit desta task; a Task 11 substitui o conteúdo dele.
 
 - [ ] **Step 5: Verificar manualmente**
 
@@ -2030,7 +2047,8 @@ Run: `bun run dev`
 
 ```bash
 git add src/routes/_app/inbox.\$conversaId.tsx src/components/crm/Historico.tsx \
-  src/components/crm/Bolha.tsx src/components/crm/CaixaDeResposta.tsx src/routeTree.gen.ts
+  src/components/crm/Bolha.tsx src/components/crm/CaixaDeResposta.tsx \
+  src/components/crm/PainelLead.tsx src/routeTree.gen.ts
 git commit -m "feat(inbox): histórico, mídia e resposta manual"
 ```
 
@@ -2039,13 +2057,101 @@ git commit -m "feat(inbox): histórico, mídia e resposta manual"
 ### Task 11: Painel do lead
 
 **Files:**
-- Create: `src/components/crm/PainelLead.tsx`
+- Modify: `src/components/crm/PainelLead.tsx` (a Task 10 deixou um stub; substitua o conteúdo inteiro, mantendo a assinatura `{ leadId, conversaId }`)
+- Create: `src/components/crm/TarefasDoLead.tsx`
 
 **Interfaces:**
 - Consumes: `obterLeadDoCrm`, `listarTarefasDoCrm` (Task 5); `moverEstagioDoLead`, `atualizarDadosDoLead`, `registrarNotaNoLead`, `resolverAtencao`, `alternarNaoPerturbe`, `criarTarefaDoCrm`, `alternarTarefaDoCrm`, `excluirTarefaDoCrm` (Task 8); `ESTAGIOS` de `src/lib/crm/estagios.ts`; `rotuloDeEstagio` (Task 9).
-- Produces: `<PainelLead leadId conversaId />`.
+- Produces: `<PainelLead leadId conversaId />` e `<TarefasDoLead leadId />`.
 
-- [ ] **Step 1: Implementar**
+O bloco de tarefas sai num componente próprio: as três mutations de tarefa não têm nada a ver com estágio, dados e notas do lead, e separá-las deixa o painel em ~170 linhas em vez de ~250.
+
+- [ ] **Step 1: Criar o componente de tarefas do lead**
+
+Cria `src/components/crm/TarefasDoLead.tsx`:
+
+```tsx
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  alternarTarefaDoCrm,
+  criarTarefaDoCrm,
+  excluirTarefaDoCrm,
+  listarTarefasDoCrm,
+} from "@/lib/crm/crm.functions";
+
+export function TarefasDoLead({ leadId }: { leadId: string }) {
+  const clienteQuery = useQueryClient();
+  const [titulo, setTitulo] = useState("");
+
+  const { data: tarefas = [] } = useQuery({
+    queryKey: ["tarefas", leadId],
+    // apenasAbertas: false — no painel do lead as concluídas também aparecem,
+    // riscadas, para dar contexto do que já foi feito com ele.
+    queryFn: () => listarTarefasDoCrm({ data: { apenasAbertas: false, leadId } }),
+    enabled: Boolean(leadId),
+  });
+
+  function recarregar() {
+    clienteQuery.invalidateQueries({ queryKey: ["tarefas"] });
+  }
+
+  const criar = useMutation({
+    mutationFn: () => criarTarefaDoCrm({ data: { leadId, titulo: titulo.trim() } }),
+    onSuccess: () => {
+      setTitulo("");
+      recarregar();
+    },
+  });
+  const alternar = useMutation({
+    mutationFn: ({ tarefaId, concluida }: { tarefaId: string; concluida: boolean }) =>
+      alternarTarefaDoCrm({ data: { tarefaId, concluida } }),
+    onSuccess: recarregar,
+  });
+  const excluir = useMutation({
+    mutationFn: (tarefaId: string) => excluirTarefaDoCrm({ data: { tarefaId } }),
+    onSuccess: recarregar,
+  });
+
+  return (
+    <div className="flex flex-col gap-1">
+      <strong>Tarefas</strong>
+      {tarefas.map((tarefa: any) => (
+        <div key={tarefa.id} className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={tarefa.concluida}
+            onChange={(evento) =>
+              alternar.mutate({ tarefaId: tarefa.id, concluida: evento.target.checked })
+            }
+          />
+          <span className={tarefa.concluida ? "line-through opacity-60" : ""}>{tarefa.titulo}</span>
+          <button onClick={() => excluir.mutate(tarefa.id)} className="ml-auto opacity-60">
+            ✕
+          </button>
+        </div>
+      ))}
+      <div className="flex gap-1">
+        <input
+          value={titulo}
+          onChange={(evento) => setTitulo(evento.target.value)}
+          placeholder="Nova tarefa"
+          className="flex-1 rounded bg-[var(--color-painel)] p-1"
+        />
+        <button
+          onClick={() => criar.mutate()}
+          disabled={!titulo.trim()}
+          className="rounded bg-[var(--color-painel)] px-2 disabled:opacity-50"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Implementar o painel**
 
 Cria `src/components/crm/PainelLead.tsx`:
 
@@ -2055,22 +2161,18 @@ import { useState } from "react";
 import { ESTAGIOS } from "@/lib/crm/estagios";
 import {
   alternarNaoPerturbe,
-  alternarTarefaDoCrm,
   atualizarDadosDoLead,
-  criarTarefaDoCrm,
-  excluirTarefaDoCrm,
-  listarTarefasDoCrm,
   moverEstagioDoLead,
   obterLeadDoCrm,
   registrarNotaNoLead,
   resolverAtencao,
 } from "@/lib/crm/crm.functions";
 import { rotuloDeEstagio } from "./rotulos";
+import { TarefasDoLead } from "./TarefasDoLead";
 
 export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId: string }) {
   const clienteQuery = useQueryClient();
   const [nota, setNota] = useState("");
-  const [tituloTarefa, setTituloTarefa] = useState("");
 
   const { data: lead } = useQuery({
     queryKey: ["lead", leadId],
@@ -2078,15 +2180,8 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
     enabled: Boolean(leadId),
   });
 
-  const { data: tarefas = [] } = useQuery({
-    queryKey: ["tarefas", leadId],
-    queryFn: () => listarTarefasDoCrm({ data: { apenasAbertas: false, leadId } }),
-    enabled: Boolean(leadId),
-  });
-
   function recarregar() {
     clienteQuery.invalidateQueries({ queryKey: ["lead", leadId] });
-    clienteQuery.invalidateQueries({ queryKey: ["tarefas", leadId] });
     clienteQuery.invalidateQueries({ queryKey: ["conversas"] });
   }
 
@@ -2113,22 +2208,6 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
   });
   const silenciar = useMutation({
     mutationFn: () => alternarNaoPerturbe({ data: { leadId, conversaId, motivo: "marcado no inbox" } }),
-    onSuccess: recarregar,
-  });
-  const novaTarefa = useMutation({
-    mutationFn: () => criarTarefaDoCrm({ data: { leadId, titulo: tituloTarefa.trim() } }),
-    onSuccess: () => {
-      setTituloTarefa("");
-      recarregar();
-    },
-  });
-  const concluirTarefa = useMutation({
-    mutationFn: ({ tarefaId, concluida }: { tarefaId: string; concluida: boolean }) =>
-      alternarTarefaDoCrm({ data: { tarefaId, concluida } }),
-    onSuccess: recarregar,
-  });
-  const apagarTarefa = useMutation({
-    mutationFn: (tarefaId: string) => excluirTarefaDoCrm({ data: { tarefaId } }),
     onSuccess: recarregar,
   });
 
@@ -2220,39 +2299,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
         </button>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <strong>Tarefas</strong>
-        {tarefas.map((tarefa: any) => (
-          <div key={tarefa.id} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={tarefa.concluida}
-              onChange={(evento) =>
-                concluirTarefa.mutate({ tarefaId: tarefa.id, concluida: evento.target.checked })
-              }
-            />
-            <span className={tarefa.concluida ? "line-through opacity-60" : ""}>{tarefa.titulo}</span>
-            <button onClick={() => apagarTarefa.mutate(tarefa.id)} className="ml-auto opacity-60">
-              ✕
-            </button>
-          </div>
-        ))}
-        <div className="flex gap-1">
-          <input
-            value={tituloTarefa}
-            onChange={(evento) => setTituloTarefa(evento.target.value)}
-            placeholder="Nova tarefa"
-            className="flex-1 rounded bg-[var(--color-painel)] p-1"
-          />
-          <button
-            onClick={() => novaTarefa.mutate()}
-            disabled={!tituloTarefa.trim()}
-            className="rounded bg-[var(--color-painel)] px-2 disabled:opacity-50"
-          >
-            +
-          </button>
-        </div>
-      </div>
+      <TarefasDoLead leadId={leadId} />
 
       {!lead.nao_perturbe && (
         <button onClick={() => silenciar.mutate()} className="self-start text-[var(--color-suave)] underline">
@@ -2269,12 +2316,12 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
 }
 ```
 
-- [ ] **Step 2: Rodar o TypeScript**
+- [ ] **Step 3: Rodar o TypeScript**
 
 Run: `bunx tsc --noEmit`
 Expected: sem erro
 
-- [ ] **Step 3: Verificar manualmente**
+- [ ] **Step 4: Verificar manualmente**
 
 Run: `bun run dev`
 
@@ -2285,10 +2332,10 @@ Run: `bun run dev`
 5. Numa conversa com `precisa_atencao`, clicar em "Marcar como resolvido" → o ⚠️ some da lista.
 6. Se houver lead vindo de anúncio, conferir que o bloco "Veio de anúncio" aparece.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/crm/PainelLead.tsx
+git add src/components/crm/PainelLead.tsx src/components/crm/TarefasDoLead.tsx
 git commit -m "feat(inbox): painel do lead com estágio, dados, notas e tarefas"
 ```
 
@@ -2312,7 +2359,8 @@ Cria `src/routes/_app/tarefas.tsx`:
 ```tsx
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { alternarTarefaDoCrm, listarConversasDoInbox, listarTarefasDoCrm } from "@/lib/crm/crm.functions";
+import { alternarTarefaDoCrm, listarTarefasDoCrm } from "@/lib/crm/crm.functions";
+import { useConversas } from "@/components/crm/useConversas";
 
 export const Route = createFileRoute("/_app/tarefas")({
   component: TelaTarefas,
@@ -2330,10 +2378,7 @@ function TelaTarefas() {
 
   // Para linkar cada tarefa à conversa do lead — a listagem do inbox já traz
   // esse mapeamento e está em cache.
-  const { data: conversas = [] } = useQuery({
-    queryKey: ["conversas"],
-    queryFn: () => listarConversasDoInbox(),
-  });
+  const { data: conversas = [] } = useConversas();
 
   const concluir = useMutation({
     mutationFn: (tarefaId: string) => alternarTarefaDoCrm({ data: { tarefaId, concluida: true } }),
@@ -2385,15 +2430,10 @@ function TelaTarefas() {
 
 - [ ] **Step 2: Acrescentar os contadores à barra superior**
 
-Em `src/routes/_app.tsx`, dentro de `LayoutApp`, buscar os dois números e mostrá-los. Acrescenta os imports de `useQuery`, `listarConversasDoInbox` e `listarTarefasDoCrm`, e dentro do componente:
+Em `src/routes/_app.tsx`, dentro de `LayoutApp`, buscar os dois números e mostrá-los. Acrescenta os imports de `useQuery`, `listarTarefasDoCrm` e `useConversas` (de `@/components/crm/useConversas`), e dentro do componente:
 
 ```tsx
-  const { data: conversas = [] } = useQuery({
-    queryKey: ["conversas"],
-    queryFn: () => listarConversasDoInbox(),
-    refetchInterval: 5000,
-    refetchIntervalInBackground: false,
-  });
+  const { data: conversas = [] } = useConversas();
   const { data: tarefasAbertas = [] } = useQuery({
     queryKey: ["tarefas", "abertas"],
     queryFn: () => listarTarefasDoCrm({ data: { apenasAbertas: true } }),
