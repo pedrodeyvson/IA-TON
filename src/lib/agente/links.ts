@@ -9,7 +9,10 @@
 //
 // O nome comercial de cada productId saiu de docs/conhecimento/produtos-e-taxas.md
 // (extraído de guia_maquinas.pdf + tabela-adesao-rex.pdf). NÃO se deduz pelo
-// código do hardware — foi lido no manual, seção por seção.
+// código do hardware — foi lido no manual, seção por seção. Em 2026-08-08 os
+// seis links foram visitados de verdade (Playwright) para conferir nome e
+// preço exibidos na própria página Ton — ver docs/conhecimento/links-verificados.md.
+// Essa visita também resolveu o D150, que os PDFs não citavam (ver abaixo).
 
 export const PRODUTOS = {
   // Seção 1.1 — nível T3 Smart (POS Android). Ton Black é exclusivo do Renda
@@ -17,32 +20,44 @@ export const PRODUTOS = {
   TONBLACK_TIER_SMART_POS: {
     userTag: "tonblack_tier",
     nome: "T3 Smart no plano Ton Black",
-    fonte: "produtos-e-taxas.md §1.1 e §6 (elegibilidade do Ton Black)",
+    fonte:
+      "produtos-e-taxas.md §1.1 e §6 (elegibilidade do Ton Black); " +
+      "confirmado como 'T3 Smart Ton Black' no carrinho ao vivo — links-verificados.md §1",
   },
   TONMEGA_TIER_SMART_POS: {
     userTag: "tonmega_tier",
     nome: "T3 Smart no plano Ton Mega+",
-    fonte: "produtos-e-taxas.md §1.1",
+    fonte:
+      "produtos-e-taxas.md §1.1; confirmado como 'T3 Smart' no catálogo e " +
+      "'T3 Smart Ton Mega+' no carrinho ao vivo — links-verificados.md §2",
   },
   // Seção 1.2 — o S920 está listado no nível T3, não no T3 Smart.
   TONMEGA_TIER_S920: {
     userTag: "tonmega_tier",
     nome: "T3 no plano Ton Mega+ (modelo S920)",
-    fonte: "produtos-e-taxas.md §1.2",
+    fonte:
+      "produtos-e-taxas.md §1.2; confirmado como 'T3' no catálogo e " +
+      "'T3 Ton Mega+' no carrinho ao vivo — links-verificados.md §3",
   },
   // Seção 1.3 — o D195 está listado no nível T2.
   TONMEGA_TIER_D195: {
     userTag: "tonmega_tier",
     nome: "T2 no plano Ton Mega+ (modelo D195)",
-    fonte: "produtos-e-taxas.md §1.3",
+    fonte:
+      "produtos-e-taxas.md §1.3; confirmado como 'T2' no catálogo e " +
+      "'T2 Ton Mega+' no carrinho ao vivo — links-verificados.md §4",
   },
-  // D150 NÃO aparece em nenhum dos 10 documentos lidos. O link funciona (é o
-  // que o adendo manda), mas o agente não pode chamá-lo de T1/T2/T3: nome null
-  // significa "não ofereça pelo nome", e o prompt não o lista.
+  // D150 NÃO aparece em nenhum dos 10 documentos lidos. Mas visitando a
+  // página de verdade (2026-08-08): o botão "Pedir T1" do catálogo aponta
+  // para productId=TONMEGA_TIER_D150, e o carrinho desse productId rotula o
+  // item "T1 Ton Mega+" — preço (R$16,80 / 12x R$1,40) bate com o T1 de
+  // produtos-e-taxas.md §1.0. D150 = T1. Ver links-verificados.md §5.
   TONMEGA_TIER_D150: {
     userTag: "tonmega_tier",
-    nome: null,
-    fonte: "NÃO CONSTA NO MATERIAL",
+    nome: "T1 no plano Ton Mega+ (modelo D150)",
+    fonte:
+      "NÃO CONSTA em nenhum dos 10 PDFs — nome encontrado visitando a página " +
+      "de checkout ao vivo (carrinho rotula 'T1 Ton Mega+') — links-verificados.md §5",
   },
 } as const;
 

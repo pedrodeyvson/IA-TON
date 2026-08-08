@@ -69,9 +69,12 @@ test("o prompt lista os productId que o modelo pode escolher", () => {
   assert.match(p, /catalogo/);
 });
 
-test("produto sem nome no material não é oferecido ao modelo", () => {
+test("o D150 (T1) agora é oferecido: a visita à página ao vivo achou o nome comercial", () => {
+  // Antes o D150 não constava em nenhum PDF e ficava de fora (nome: null). A
+  // visita a docs/conhecimento/links-verificados.md §5 achou "T1" na própria
+  // página da Ton, então agora ele entra na lista como qualquer outro produto.
   const p = montarSystemPrompt({ lead: LEAD, modo: "venda" });
-  assert.equal(p.includes("D150"), false);
+  assert.match(p, /TONMEGA_TIER_D150 — T1/);
 });
 
 test("o prompt explica as quatro tools, inclusive as novas", () => {

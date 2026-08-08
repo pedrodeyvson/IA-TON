@@ -43,9 +43,11 @@ test("o nome comercial vem do manual, não do código do hardware", () => {
   assert.match(PRODUTOS.TONBLACK_TIER_SMART_POS.nome ?? "", /Black/);
 });
 
-test("D150 não tem nome comercial: não consta em nenhum manual", () => {
-  // Inventar "T1" ou "T2" aqui seria exatamente o erro que o adendo proíbe.
-  assert.equal(PRODUTOS.TONMEGA_TIER_D150.nome, null);
+test("D150 não constava em nenhum manual, mas a página ao vivo revelou T1", () => {
+  // Não é dedução: o botão "Pedir T1" do catálogo aponta pra esse productId,
+  // e o carrinho rotula o item "T1 Ton Mega+" — ver docs/conhecimento/links-verificados.md §5.
+  assert.match(PRODUTOS.TONMEGA_TIER_D150.nome ?? "", /T1/);
+  assert.doesNotMatch(PRODUTOS.TONMEGA_TIER_D150.nome ?? "", /T2|T3/);
 });
 
 test("checkout leva productId, referrer e userTag no formato do adendo", () => {
