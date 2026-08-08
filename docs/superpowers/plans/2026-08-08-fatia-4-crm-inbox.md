@@ -6,7 +6,7 @@
 
 **Architecture:** Três camadas. A de dados (`src/lib/crm/*.server.ts`) já existe e recebe um client `admin` por parâmetro — só ganha um módulo novo (`inbox.server.ts`) e um recheck de pausa no agente. A de exposição (`crm.functions.ts`, `auth.functions.ts`) são `createServerFn` finas que validam com zod, exigem sessão por middleware e delegam. A de tela são rotas TanStack com TanStack Query, que só conhecem as server functions.
 
-**Tech Stack:** TanStack Start 1.168 + React 19, Supabase (`@supabase/ssr` novo nesta fatia), TanStack Query 5, Tailwind v4 + shadcn/ui, zod 3, runtime Bun. Testes com `node --test --experimental-strip-types`.
+**Tech Stack:** TanStack Start 1.168 + React 19, Supabase (`@supabase/ssr` novo nesta fatia), TanStack Query 5, Tailwind v4 (sem shadcn — ver Task 4), zod 3, runtime Bun. Testes com `node --test --experimental-strip-types`.
 
 **Spec:** `docs/superpowers/specs/2026-08-08-fatia-4-crm-inbox-design.md`
 
@@ -586,13 +586,12 @@ git commit -m "feat(auth): tela de login e server functions entrar/sair"
 
 ---
 
-### Task 4: Casca autenticada — Tailwind, shadcn e rota protegida
+### Task 4: Casca autenticada — Tailwind e rota protegida
 
 **Files:**
 - Create: `src/styles.css`
 - Create: `src/routes/_app.tsx`
 - Create: `src/routes/_app/inbox.tsx` (placeholder nesta task)
-- Create: `components.json`
 - Modify: `src/routes/__root.tsx`
 - Modify: `vite.config.ts`
 - Modify: `src/routeTree.gen.ts` (gerado)
@@ -798,19 +797,7 @@ function LayoutInbox() {
 }
 ```
 
-- [ ] **Step 8: Inicializar o shadcn/ui**
-
-```bash
-bunx shadcn@latest init
-```
-
-Responder: estilo **New York**, cor base **Slate**, arquivo de CSS **src/styles.css**, alias de componentes **@/components**. Isso cria `components.json` e ajusta o CSS. Depois:
-
-```bash
-bunx shadcn@latest add button input textarea badge select scroll-area dialog
-```
-
-- [ ] **Step 9: Verificar manualmente**
+- [ ] **Step 8: Verificar manualmente**
 
 Run: `bun run dev`
 
@@ -818,13 +805,13 @@ Run: `bun run dev`
 2. Entrar → volta para `/inbox` e mostra a casca com o cabeçalho e a coluna vazia.
 3. Clicar em "Sair" → volta ao login; reabrir `/inbox` redireciona de novo.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add package.json bun.lock components.json vite.config.ts src/styles.css \
+git add package.json bun.lock vite.config.ts src/styles.css \
   src/routes/__root.tsx src/routes/_app.tsx src/routes/_app/inbox.tsx \
   src/lib/auth/auth.functions.ts src/components src/routeTree.gen.ts
-git commit -m "feat(crm): casca autenticada com Tailwind, shadcn e rota _app"
+git commit -m "feat(crm): casca autenticada com Tailwind e rota _app"
 ```
 
 ---

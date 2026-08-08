@@ -38,7 +38,14 @@ editável (Fatia 3, redefinida — ver o fim deste documento), envio de mídia p
   com RLS. Ela funciona para leitura, mas toda escrita relevante tem efeito colateral
   server-only (enviar pela UAZAPI exige o token; mover estágio grava evento de
   auditoria), o que levaria a duas camadas de dados e às regras da Fatia 2 duplicadas.
-- **Tailwind v4 + shadcn/ui**, como o spec mestre já fixava. Rotas aninhadas
+- **Tailwind v4, sem shadcn/ui.** O spec mestre fixava shadcn, e a decisão foi revista
+  durante a implementação (08/08/2026): nenhuma tela desta fatia importa um componente
+  shadcn — todas usam `<button>`, `<input>`, `<select>` e `<textarea>` nativos com
+  classes Tailwind. Instalar a biblioteca seria dependência morta. Some daí uma segunda
+  razão: a CLI do shadcn migrou para um fluxo de presets que não roda sem terminal
+  interativo. A porta continua aberta — quando uma tela pedir diálogo ou combobox de
+  verdade (provavelmente o upload de mídia da Fatia 5), adotar shadcn ali é barato.
+- Rotas aninhadas
   (`/inbox`, `/inbox/$conversaId`) para que abrir uma conversa produza URL linkável e
   sobreviva ao F5.
 
@@ -80,7 +87,7 @@ src/routes/
   _app/inbox.$conversaId.tsx   histórico, resposta e painel do lead
   _app/tarefas.tsx       fila global de tarefas abertas
 src/components/
-  ui/                    shadcn (gerado; não editamos)
+                         (sem `ui/`: ver a decisão sobre shadcn abaixo)
   crm/                   ListaConversas, Historico, CaixaDeResposta, PainelLead,
                          FilaDeTarefas
 ```
