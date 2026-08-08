@@ -1912,8 +1912,15 @@ Estenda `adminFalso` com as opções `mensagem` e `erroNaMensagem`, e faça o re
  *
  * Inserir uma linha nova deixaria a original em `falhou` para sempre: o botão
  * de reenviar não sumiria da tela e cada clique viraria outro WhatsApp para o
- * lead. Passar por `pendente` também é o que torna o duplo clique inofensivo —
- * a segunda chamada encontra a mensagem fora de `falhou` e recusa.
+ * lead.
+ *
+ * O duplo clique é barrado pelo próprio UPDATE, não pela leitura anterior:
+ * `.eq("status", "falhou")` no update faz o Postgres travar a linha e só uma
+ * das chamadas concorrentes acha o que atualizar. Conferir o status depois de
+ * ler não bastaria — entre a leitura e a escrita há dois round-trips, tempo
+ * de sobra para duas requisições passarem juntas pela mesma checagem.
+ *
+ * Nunca lança: devolve { ok, erro }, no mesmo contrato de enviarTextoDoCrm.
  */
 export async function reenviarFalhada(
   admin: any,
@@ -1942,33 +1949,112 @@ export async function reenviarFalhada(
   if (erroLead) return { ok: false, erro: erroLead.message };
   if (!lead?.telefone) return { ok: false, erro: "lead sem telefone real" };
 
-  await admin.from("mensagens").update({ status: "pendente" }).eq("id", mensagemId);
+  // Resolver o remetente ANTES de mexer no status. Se ficasse depois, uma
+  // falha aqui (token ausente, import quebrado) lançaria com a linha já em
+  // `pendente` e sem rollback — presa fora de `falhou`, sem botão de reenviar.
+  let enviar: (numero: string, texto: string) => Promise<any>;
+  try {
+    enviar = deps.enviar ?? (await resolverEnvioUazapi());
+  } catch (err: any) {
+    return { ok: false, erro: err?.message ?? "não foi possível preparar o envio" };
+  }
 
-  const enviar = deps.enviar ?? (await enviarPelaUazapi());
+  // Compare-and-swap: só sai de `falhou` quem chegou primeiro.
+  const { data: travadas, error: erroTrava } = await admin
+    .from("mensagens")
+    .update({ status: "pendente" })
+    .eq("id", mensagemId)
+    .eq("status", "falhou")
+    .select("id");
+
+  if (erroTrava) return { ok: false, erro: erroTrava.message };
+  if (!travadas || travadas.length === 0) {
+    return { ok: false, erro: "reenvio já em andamento" };
+  }
+
   let resposta: any;
   try {
     resposta = await enviar(lead.telefone, texto);
   } catch (err: any) {
-    await admin.from("mensagens").update({ status: "falhou" }).eq("id", mensagemId);
-    return { ok: false, erro: err?.message ?? "erro desconhecido ao reenviar" };
+    const erroEnvio = err?.message ?? "erro desconhecido ao reenviar";
+    // A volta para `falhou` é o que devolve o botão ao operador; se ela também
+    // falhar, a linha fica em `pendente` e isso precisa aparecer no erro em
+    // vez de sumir — mesmo cuidado do marcarFalhou em mensagens.server.ts.
+    const { error: erroVolta } = await admin
+      .from("mensagens")
+      .update({ status: "falhou" })
+      .eq("id", mensagemId);
+    if (erroVolta) {
+      return {
+        ok: false,
+        erro: `${erroEnvio} (e a mensagem ficou presa em "pendente": ${erroVolta.message})`,
+      };
+    }
+    return { ok: false, erro: erroEnvio };
   }
 
-  await admin
+  const { error: erroFinal } = await admin
     .from("mensagens")
     .update({ status: "enviada", provider_message_id: resposta?.messageid ?? resposta?.id ?? null })
     .eq("id", mensagemId);
 
+  // Entregue de verdade: `ok` continua true mesmo se o carimbo falhar, senão a
+  // tela ofereceria reenviar algo que o cliente já recebeu.
+  if (erroFinal) {
+    return { ok: true, erro: `mensagem reenviada, mas falha ao marcar "enviada": ${erroFinal.message}` };
+  }
   return { ok: true };
 }
 
 /** Resolve o envio real só quando não há dublê — mantém a UAZAPI fora do teste. */
-async function enviarPelaUazapi(): Promise<(numero: string, texto: string) => Promise<any>> {
+async function resolverEnvioUazapi(): Promise<(numero: string, texto: string) => Promise<any>> {
   const token = process.env.UAZAPI_TOKEN;
   if (!token) throw new Error("UAZAPI_TOKEN não configurado");
   const { enviarTexto } = await import("../uazapi/client.server.ts");
   return (numero, texto) => enviarTexto(token, numero, texto);
 }
 ```
+
+Três testes a mais, além dos cinco acima:
+
+```ts
+test("segunda chamada concorrente não reenvia — o CAS recusa", async () => {
+  // O update é que barra, não a leitura: as duas chamadas leem "falhou".
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" }, casFalhaApos: 1 });
+  const primeira = await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "p1" }) });
+  const segunda = await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "p2" }) });
+
+  assert.equal(primeira.ok, true);
+  assert.equal(segunda.ok, false);
+  assert.match(segunda.erro ?? "", /andamento/i);
+});
+
+test("falha ao preparar o envio não deixa a linha em pendente", async () => {
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  const resultado = await reenviarFalhada(admin, "msg-1", {
+    enviar: (() => {
+      throw new Error("UAZAPI_TOKEN não configurado");
+    }) as any,
+  });
+  assert.equal(resultado.ok, false);
+  assert.equal(
+    admin.ordem.some((p: string) => p.includes("status(pendente)")),
+    false,
+    "mexeu no status antes de saber que conseguiria enviar",
+  );
+});
+
+test("carimba o provider_message_id do reenvio", async () => {
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "prov-9" }) });
+  assert.ok(
+    admin.ordem.some((p: string) => p.includes("provider_message_id=prov-9")),
+    "não gravou o id do provedor",
+  );
+});
+```
+
+O dublê precisa de duas capacidades novas: `casFalhaApos` (a partir da N-ésima tentativa, o update com filtro de status devolve lista vazia) e registrar `provider_message_id=<valor>` junto do status, para que o carimbo seja verificável — hoje o dublê descarta todo campo que não seja `status`.
 
 Move o `import { ESTAGIOS }` para junto dos outros imports no topo do arquivo — `estagios.ts` é puro (sem env, sem banco), então pode ir ao bundle do cliente sem problema.
 
