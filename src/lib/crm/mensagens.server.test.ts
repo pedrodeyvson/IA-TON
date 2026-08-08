@@ -113,6 +113,44 @@ test("update para 'falhou' lança exceção: a função ainda assim não lança"
   assert.match(r.erro ?? "", /conexão caiu/);
 });
 
+// ===================== Fatia 6, Task 6: falha do destinatário =====================
+
+test("falha do destinatário (uazapi 500 + rejected this message) incrementa falhas_destinatario", async () => {
+  let falhas = 0;
+  const admin = criarAdminFake({
+    "mensagens.insert": { data: { id: "M1" }, error: null },
+    "conversas.select": () => ({ data: { falhas_destinatario: falhas }, error: null }),
+    "conversas.update": (c: any) => {
+      if (c.payload && "falhas_destinatario" in c.payload) falhas = c.payload.falhas_destinatario;
+      return { data: null, error: null };
+    },
+  });
+  await enviarTextoDoCrm(admin, BASE, {
+    enviar: async () => {
+      throw new Error(
+        `UAZAPI 500: {"error":true,"message":"The WhatsApp server rejected this message"}`,
+      );
+    },
+  });
+  assert.equal(falhas, 1);
+});
+
+test("falha transitória (timeout/rede) nunca toca em falhas_destinatario — domínio é só de registrarFalha/tentativas", async () => {
+  const admin = criarAdminFake({ "mensagens.insert": { data: { id: "M1" }, error: null } });
+  await enviarTextoDoCrm(admin, BASE, {
+    enviar: async () => { throw new Error("fetch failed: connect ETIMEDOUT"); },
+  });
+  const tocouConversas = admin.chamadas.some((c) => c.tabela === "conversas");
+  assert.equal(tocouConversas, false, "falha transitória não é do domínio deste contador");
+});
+
+test("envio bem-sucedido zera falhas_destinatario — 1 falha do destinatário + 1 sucesso não acumula", async () => {
+  const admin = criarAdminFake({ "mensagens.insert": { data: { id: "M1" }, error: null } });
+  await enviarTextoDoCrm(admin, BASE, { enviar: async () => ({ messageid: "WA1" }) });
+  const update = admin.chamadas.find((c) => c.tabela === "conversas" && c.operacao === "update");
+  assert.equal(update?.payload.falhas_destinatario, 0);
+});
+
 test("listarMensagens devolve a conversa do mais antigo para o mais novo", async () => {
   // O banco devolve mais novo primeiro (ORDER BY timestamp_ms DESC); a função
   // precisa inverter isso antes de devolver, senão a IA lê a conversa de

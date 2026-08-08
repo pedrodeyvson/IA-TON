@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enviarEventoCapi, sincronizarEventosCapi } from "./capi.server.ts";
+import { detalharErroMeta, enviarEventoCapi, listarDisparosCapi, sincronizarEventosCapi } from "./capi.server.ts";
 
 /**
  * Só cobre os dois caminhos testáveis sem rede: (1) config ausente degrada em
@@ -24,6 +24,7 @@ function criarAdminFake(linhasEventosCapi: any[] = []) {
       select() { if (!op) op = "select"; return self; },
       insert(obj: any) { op = "insert"; payload = obj; return self; },
       eq(coluna: string, valor: any) { filtros.push((row) => row[coluna] === valor); return self; },
+      order() { return self; },
       then(resolve: any) {
         const rows = tabelas[tabela] ?? (tabelas[tabela] = []);
         if (op === "insert") {
@@ -43,6 +44,7 @@ function criarAdminFake(linhasEventosCapi: any[] = []) {
 function limparEnvCapi() {
   delete process.env.META_PIXEL_ID;
   delete process.env.META_CAPI_TOKEN;
+  delete process.env.META_PAGE_ID;
 }
 
 test("enviarEventoCapi: sem META_PIXEL_ID/META_CAPI_TOKEN, degrada em silêncio sem tocar no banco", async () => {
@@ -65,6 +67,7 @@ test("enviarEventoCapi: evento já enviado com sucesso não é reenviado (dedup)
   const antesToken = process.env.META_CAPI_TOKEN;
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   try {
     const admin = criarAdminFake([
       { lead_id: "lead-1", nome_evento: "LeadSubmitted", status_resposta: "ok" },
@@ -76,6 +79,7 @@ test("enviarEventoCapi: evento já enviado com sucesso não é reenviado (dedup)
   } finally {
     if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
     if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
   }
 });
 
@@ -97,6 +101,7 @@ test("enviarEventoCapi: tentativa anterior com erro não é tratada como duplica
   const antesToken = process.env.META_CAPI_TOKEN;
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1, fbtrace_id: "trace-1" } });
   try {
     const admin = criarAdminFake([
@@ -111,6 +116,7 @@ test("enviarEventoCapi: tentativa anterior com erro não é tratada como duplica
     restaurarFetch();
     if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
     if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
   }
 });
 
@@ -119,6 +125,7 @@ test("enviarEventoCapi: envio bem-sucedido grava status_resposta 'ok' em eventos
   const antesToken = process.env.META_CAPI_TOKEN;
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1, fbtrace_id: "trace-2" } });
   try {
     const admin = criarAdminFake();
@@ -135,6 +142,7 @@ test("enviarEventoCapi: envio bem-sucedido grava status_resposta 'ok' em eventos
     restaurarFetch();
     if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
     if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
   }
 });
 
@@ -143,6 +151,7 @@ test("enviarEventoCapi: Meta recusa o evento -> ok:false e status_resposta come�
   const antesToken = process.env.META_CAPI_TOKEN;
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   const restaurarFetch = stubFetch({ ok: false, status: 400, body: { error: { message: "Invalid parameter" } } });
   try {
     const admin = criarAdminFake();
@@ -155,12 +164,14 @@ test("enviarEventoCapi: Meta recusa o evento -> ok:false e status_resposta come�
     restaurarFetch();
     if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
     if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
   }
 });
 
 test("sincronizarEventosCapi: lead sem atribuição de anúncio não dispara nada", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   try {
     const admin = criarAdminFake();
     await sincronizarEventosCapi(admin, "lead-organico", "convertido", {
@@ -170,12 +181,14 @@ test("sincronizarEventosCapi: lead sem atribuição de anúncio não dispara nad
   } finally {
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
   }
 });
 
 test("sincronizarEventosCapi: dispara em ordem os eventos que faltam para o estágio", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1 } });
   try {
     const admin = criarAdminFake([
@@ -193,12 +206,14 @@ test("sincronizarEventosCapi: dispara em ordem os eventos que faltam para o est�
     restaurarFetch();
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
   }
 });
 
 test("sincronizarEventosCapi: para na cascata quando um evento falha, não pula pro próximo", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   const restaurarFetch = stubFetch({ ok: false, status: 400, body: { error: { message: "Invalid parameter" } } });
   try {
     const admin = criarAdminFake();
@@ -212,12 +227,14 @@ test("sincronizarEventosCapi: para na cascata quando um evento falha, não pula 
     restaurarFetch();
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
   }
 });
 
 test("sincronizarEventosCapi: Purchase leva a comissão estimada como value em BRL", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   let payloadCapturado: any = null;
   const original = globalThis.fetch;
   (globalThis as any).fetch = async (_url: string, opts: any) => {
@@ -240,12 +257,14 @@ test("sincronizarEventosCapi: Purchase leva a comissão estimada como value em B
     (globalThis as any).fetch = original;
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
   }
 });
 
 test("sincronizarEventosCapi: Purchase sem comissão gravada usa COMISSAO_PADRAO_BRL", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   process.env.COMISSAO_PADRAO_BRL = "500";
   let payloadCapturado: any = null;
   const original = globalThis.fetch;
@@ -267,6 +286,7 @@ test("sincronizarEventosCapi: Purchase sem comissão gravada usa COMISSAO_PADRAO
     (globalThis as any).fetch = original;
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
     delete process.env.COMISSAO_PADRAO_BRL;
   }
 });
@@ -274,6 +294,7 @@ test("sincronizarEventosCapi: Purchase sem comissão gravada usa COMISSAO_PADRAO
 test("sincronizarEventosCapi: nunca lança, mesmo se a consulta a eventos_capi falhar", async () => {
   process.env.META_PIXEL_ID = "pixel-teste";
   process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
   try {
     const adminQuebrado = { from() { throw new Error("conexão caiu"); } };
     await assert.doesNotReject(() =>
@@ -282,5 +303,156 @@ test("sincronizarEventosCapi: nunca lança, mesmo se a consulta a eventos_capi f
   } finally {
     delete process.env.META_PIXEL_ID;
     delete process.env.META_CAPI_TOKEN;
+    delete process.env.META_PAGE_ID;
   }
+});
+
+// --- page_id: o parâmetro cuja ausência derrubou 100% dos eventos em
+// 08/08/2026 (400, code 100, subcode 2804116). A Meta exige page_id ou
+// whatsapp_business_account_id em action_source=business_messaging.
+
+test("enviarEventoCapi: pixel+token sem META_PAGE_ID pula em vez de enviar um evento que a Meta recusa", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  delete process.env.META_PAGE_ID;
+  const originalFetch = globalThis.fetch;
+  let chamouFetch = false;
+  (globalThis as any).fetch = async () => { chamouFetch = true; return new Response("{}", { status: 200 }); };
+  try {
+    const admin = criarAdminFake();
+    const r = await enviarEventoCapi(admin, "lead-1", "LeadSubmitted", { ctwaClid: "clid-1" });
+    assert.equal(r.ok, false);
+    assert.equal(r.skipped, true);
+    assert.equal(chamouFetch, false, "não pode gastar chamada num payload que a Meta rejeita por contrato");
+    assert.equal(admin._chamouFrom(), false, "não pode encher eventos_capi de erro previsível");
+  } finally {
+    (globalThis as any).fetch = originalFetch;
+    limparEnvCapi();
+  }
+});
+
+test("enviarEventoCapi: page_id vai em user_data, em texto puro, junto do ctwa_clid", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "374875799033778";
+  const originalFetch = globalThis.fetch;
+  let corpo: any = null;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    corpo = JSON.parse(init.body);
+    return new Response(JSON.stringify({ events_received: 1 }), { status: 200 });
+  };
+  try {
+    const admin = criarAdminFake();
+    const r = await enviarEventoCapi(admin, "lead-1", "LeadSubmitted", { ctwaClid: "clid-1" });
+    assert.equal(r.ok, true);
+    const ud = corpo.data[0].user_data;
+    assert.equal(ud.page_id, "374875799033778", "page_id ausente = 100% dos eventos recusados");
+    assert.equal(ud.ctwa_clid, "clid-1");
+    assert.equal(corpo.data[0].action_source, "business_messaging");
+  } finally {
+    (globalThis as any).fetch = originalFetch;
+    limparEnvCapi();
+  }
+});
+
+test("detalharErroMeta: guarda o subcode e o error_user_msg, não só a mensagem genérica", () => {
+  const resposta = {
+    error: {
+      message: "Invalid parameter",
+      code: 100,
+      error_subcode: 2804116,
+      error_user_title: "Falta a identificação da Página",
+      error_user_msg: "Seu evento LeadSubmitted ... não tem um parâmetro page_id ou whatsapp_business_account_id.",
+    },
+  };
+  const detalhe = detalharErroMeta(resposta, "corpo cru");
+  // "Invalid parameter" sozinho é o que escondeu a causa raiz por um dia.
+  assert.ok(detalhe.includes("2804116"), "sem o subcode a linha de erro não diagnostica nada");
+  assert.ok(detalhe.includes("page_id"), "sem o error_user_msg não dá para saber qual parâmetro falhou");
+  assert.ok(detalhe.slice(0, 200).includes("2804116"), "o detalhe precisa sobreviver ao truncamento de 200 chars");
+});
+
+test("detalharErroMeta: resposta sem bloco de erro cai para o corpo cru", () => {
+  assert.equal(detalharErroMeta(null, "<html>502</html>"), "<html>502</html>");
+  assert.equal(detalharErroMeta({ algo: 1 }, "corpo"), "corpo");
+});
+
+test("sincronizarEventosCapi: adSourceId sem ctwaClid não dispara — a Meta recusa por contrato (2804071)", async () => {
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
+  const originalFetch = globalThis.fetch;
+  let chamouFetch = false;
+  (globalThis as any).fetch = async () => { chamouFetch = true; return new Response("{}", { status: 200 }); };
+  try {
+    const admin = criarAdminFake();
+    await sincronizarEventosCapi(admin, "lead-1", "convertido", {
+      ctwaClid: null, adSourceId: "120999888777666", telefone: "5511999999999", nome: "Ana",
+    });
+    assert.equal(chamouFetch, false, "sem ctwa_clid o evento volta 400 sempre — não pode nem tentar");
+    assert.equal(admin._chamouFrom(), false);
+  } finally {
+    (globalThis as any).fetch = originalFetch;
+    limparEnvCapi();
+  }
+});
+
+test("enviarEventoCapi grava payload e resposta no insert de sucesso", async () => {
+  const antesPixel = process.env.META_PIXEL_ID;
+  const antesToken = process.env.META_CAPI_TOKEN;
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
+  const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1, fbtrace_id: "trace-payload" } });
+  try {
+    const admin = criarAdminFake();
+    await enviarEventoCapi(admin, "lead-payload", "LeadSubmitted", { ctwaClid: "clid-1", telefone: "5511999999999" });
+
+    const linha = admin._tabelas.eventos_capi[0];
+    assert.equal(linha.payload?.data?.[0]?.event_name, "LeadSubmitted");
+    assert.ok(linha.payload?.data?.[0]?.user_data, "payload guarda o user_data mandado pra Meta");
+    assert.deepEqual(linha.resposta, { events_received: 1, fbtrace_id: "trace-payload" });
+  } finally {
+    restaurarFetch();
+    if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
+    if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
+  }
+});
+
+test("enviarEventoCapi grava payload e resposta mesmo quando a Meta responde erro", async () => {
+  const antesPixel = process.env.META_PIXEL_ID;
+  const antesToken = process.env.META_CAPI_TOKEN;
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
+  const restaurarFetch = stubFetch({ ok: false, status: 400, body: { error: { message: "Invalid parameter", error_subcode: 2804116 } } });
+  try {
+    const admin = criarAdminFake();
+    await enviarEventoCapi(admin, "lead-erro", "LeadSubmitted", { ctwaClid: "clid-1" });
+
+    const linha = admin._tabelas.eventos_capi[0];
+    assert.equal(linha.payload?.data?.[0]?.event_name, "LeadSubmitted", "payload gravado mesmo em erro");
+    // resposta é o JSON CRU que a Meta devolveu — status_resposta (já
+    // existente) é que guarda a string formatada de detalharErroMeta.
+    assert.deepEqual(linha.resposta, { error: { message: "Invalid parameter", error_subcode: 2804116 } });
+    assert.ok(linha.status_resposta.startsWith("erro:400:"));
+  } finally {
+    restaurarFetch();
+    if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
+    if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
+  }
+});
+
+test("listarDisparosCapi devolve os disparos do lead", async () => {
+  const admin = criarAdminFake([
+    { id: "e1", lead_id: "lead-1", nome_evento: "LeadSubmitted", enviado_em: "2026-08-08T10:00:00Z", status_resposta: "ok", payload: { a: 1 }, resposta: { b: 2 } },
+    { id: "e2", lead_id: "lead-2", nome_evento: "AddToCart", enviado_em: "2026-08-08T11:00:00Z", status_resposta: "ok", payload: {}, resposta: {} },
+  ]);
+  const r = await listarDisparosCapi(admin, "lead-1");
+  assert.equal(r.length, 1);
+  assert.equal(r[0].nome_evento, "LeadSubmitted");
+  assert.deepEqual(r[0].payload, { a: 1 });
+  assert.deepEqual(r[0].resposta, { b: 2 });
 });

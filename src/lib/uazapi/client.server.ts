@@ -44,6 +44,17 @@ export async function baixarMensagem(token: string, messageId: string) {
   return uazapiFetch("/message/download", { token, body: { id: messageId } });
 }
 
+/**
+ * `/chat/details` (== `/chat/GetNameAndImageURL`, mesmo endpoint por dois
+ * nomes — confirmado contra a UAZAPI real em 08/08/2026, ver spec da Fatia 5).
+ * Devolve null em vez de lançar quando o contato não existe ou a resposta não
+ * traz nada útil — quem chama decide o que fazer com "sem perfil".
+ */
+export async function obterDetalhesDoChat(token: string, numero: string): Promise<any | null> {
+  const resposta = await uazapiFetch("/chat/details", { token, body: { number: numero, preview: false } });
+  return resposta ?? null;
+}
+
 // NUNCA usar webhook global (endpoint /webhook com admintoken): o servidor
 // UAZAPI é compartilhado com outras instâncias de outro projeto, e um webhook
 // nesse nível afetaria todas elas, não só a nossa. Removido de propósito —

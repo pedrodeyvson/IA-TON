@@ -11,15 +11,19 @@
     "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "seed:demo": "bun --env-file=.env run scripts/semear-demo.ts"
+    "seed:demo": "bun --env-file=.env run scripts/semear-demo.ts",
+    "capi:redisparar": "bun --env-file=.env run scripts/redisparar-capi.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.108.2",
-    "@tanstack/react-query": "^5.101.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.21",
     "@tanstack/react-start": "^1.168.38",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "tailwindcss": "^4.3.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {

@@ -1,8 +1,8 @@
 // Definição e execução das tools. `executarTool` NUNCA lança: toda falha volta
 // como texto para o modelo, que pode se corrigir no mesmo turno. Uma exceção
 // aqui mataria a resposta ao cliente por causa de um argumento mal formado.
-import { ehEstagio } from "../crm/estagios.ts";
-import { atualizarLead, marcarPrecisaAtencao, moverEstagio } from "../crm/leads.server.ts";
+import { ehEstagio, limitarEstagio } from "../crm/estagios.ts";
+import { atualizarLead, coletarEvidenciaDoLead, marcarPrecisaAtencao, moverEstagio } from "../crm/leads.server.ts";
 import {
   agendarToque, limparAgendamento, pausarIa, reiniciarCiclo,
 } from "../crm/conversas.server.ts";
@@ -32,7 +32,23 @@ export const DEFINICOES_TOOLS = [
           estagio: {
             type: "string",
             enum: ["qualificando", "apresentando_solucao", "contornando_objecao", "acompanhamento"],
-            description: "Estágio atual da conversa",
+            // Descrição reescrita em 08/08/2026. A anterior era "Estágio atual
+            // da conversa", e foi o que inflou o funil: mandava o modelo
+            // descrever a PRÓPRIA AÇÃO ("perguntei algo de qualificação, logo
+            // estamos qualificando") em vez do que o LEAD demonstrou. Quatro
+            // leads ficaram em "qualificando" tendo só clicado no anúncio.
+            description:
+              "Etapa do LEAD no funil — o que ELE já demonstrou, nunca o que você acabou de " +
+              "perguntar. Critério de entrada de cada uma: " +
+              "'qualificando' = o lead RESPONDEU alguma pergunta sua (a saudação automática do " +
+              "botão do anúncio não conta, ele não digitou aquilo); " +
+              "'apresentando_solucao' = ele já disse o que usa ou o que precisa e você está " +
+              "recomendando um modelo; " +
+              "'contornando_objecao' = ele levantou uma objeção concreta (preço, taxa, " +
+              "fidelidade, desconfiança); " +
+              "'acompanhamento' = o link já foi enviado e você está confirmando se ele comprou. " +
+              "Na dúvida, escolha a etapa MENOS avançada: etapa inflada dispara evento de " +
+              "conversão falso no Meta Ads e estraga a otimização da campanha.",
           },
         },
         additionalProperties: false,
@@ -66,8 +82,11 @@ export const DEFINICOES_TOOLS = [
     function: {
       name: "registrar_resultado_compra",
       description:
-        "Registre o que o cliente disse sobre a compra. 'comprou' libera o acompanhamento de " +
-        "pós-venda; 'nao_comprou' guarda o motivo e você quebra a objeção na mesma resposta; " +
+        "Registre o que o cliente disse sobre a compra. Use 'comprou' SÓ com confirmação " +
+        "EXPLÍCITA nas palavras dele — 'comprei', 'finalizei', 'fiz o cadastro', 'chegou a " +
+        "maquininha'. Intenção ('quero essa', 'vou fazer') NÃO é confirmação — não chame com " +
+        "'comprou' por causa disso. 'comprou' libera o acompanhamento de pós-venda; " +
+        "'nao_comprou' guarda o motivo e você quebra a objeção na mesma resposta; " +
         "'nao_perturbe' quando ele pediu para não receber mais mensagens.",
       parameters: {
         type: "object",
@@ -174,7 +193,34 @@ async function executarAtualizarLead(
     maquina_interesse: maquina || undefined,
   });
 
-  if (estagio !== undefined) await moverEstagio(admin, ctx.leadId, estagio, { origem: "agente" });
+  if (estagio !== undefined) {
+    // Trava de evidência. A descrição da ferramenta já explica o critério, mas
+    // instrução de prompt o modelo contorna — a regra tem que existir em
+    // código. Coletada DEPOIS do atualizarLead acima, para que o
+    // maquina_interesse informado neste mesmo turno já conte como interesse.
+    const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+    const { estagio: permitido, cortado, motivo } = limitarEstagio(estagio, evidencia);
+
+    if (cortado) {
+      // Fica no histórico do lead para o dono auditar por que a IA foi contida.
+      await registrarEvento(admin, ctx.leadId, "estagio_limitado", {
+        pedido: estagio,
+        gravado: permitido,
+        motivo,
+      });
+    }
+
+    await moverEstagio(admin, ctx.leadId, permitido, { origem: "agente" });
+
+    if (cortado) {
+      // Devolver o corte ao modelo é o que o ensina dentro do próprio turno.
+      return {
+        conteudo:
+          `ok, lead atualizado — mas o estágio gravado foi "${permitido}", não "${estagio}". ` +
+          `${motivo}. Continue de onde o lead realmente está.`,
+      };
+    }
+  }
 
   return { conteudo: "ok, lead atualizado" };
 }
@@ -184,6 +230,26 @@ async function executarRegistrarLink(
   argumentos: Record<string, unknown>,
   ctx: ContextoTool,
 ): Promise<ResultadoTool> {
+  // Mandar link para quem não falou nada é o furo que a trava de `atualizar_lead`
+  // não cobria: esta tool grava `link_enviado_em` sem passar por evidência, e
+  // `estagioMaximoPermitido` lê exatamente esse campo — ou seja, a tool
+  // descoberta LEVANTAVA o teto da tool travada. Pior, `moverEstagio` para
+  // "link_enviado" dispara a cascata inteira da CAPI (LeadSubmitted +
+  // AddToCart + InitiateCheckout): três conversões para a Meta por um lead que
+  // nunca digitou uma palavra.
+  //
+  // Também é a regra comercial certa: link antes de qualquer resposta não
+  // vende, só queima o lead.
+  const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+  if (evidencia.respostasDoLead === 0) {
+    return {
+      conteudo:
+        "Erro: este lead ainda não respondeu nada — a saudação automática do botão do anúncio " +
+        "não conta. Nenhum link foi enviado. Faça UMA pergunta fechada e fácil de responder " +
+        "(CPF ou CNPJ? já usa maquininha hoje?) e só mande o link depois que ele responder.",
+    };
+  }
+
   const link = montarLink(argumentos.produto);
 
   if (!link.ok && link.erro === "produto_desconhecido") {
@@ -276,7 +342,38 @@ async function executarResultadoCompra(
       : "sem detalhe informado";
 
   if (resultado === "comprou") {
+    // Trava de evidência (achado Bloqueador da revisão final da Fatia 6):
+    // sem isso, um "comprou" alucinado ou mal-entendido pelo modelo dispara
+    // Purchase real na Meta CAPI com valor em BRL, e não passa por
+    // `limitarEstagio` (que exigiria compraConfirmada JÁ true — circular
+    // demais para governar a própria concessão). O guard que faz sentido
+    // aqui é: ninguém compra uma máquina cujo link nunca recebeu. Mesmo
+    // padrão de `executarRegistrarLink` — recusa, não mata o turno, e chama
+    // o dono para conferir em vez de arriscar um evento de negócio falso.
+    const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+    if (!evidencia.linkEnviado) {
+      await marcarPrecisaAtencao(
+        admin,
+        ctx.leadId,
+        `IA tentou registrar "comprou" sem link_enviado_em (detalhe: ${detalhe}).`,
+      );
+      return {
+        conteudo:
+          "Erro: este lead nunca recebeu o link de compra — não é possível confirmar uma " +
+          "compra que não teve como acontecer. Nada foi gravado, nenhum evento foi disparado. " +
+          "Se o cliente comprou por outro canal, escale para o Pedro conferir.",
+      };
+    }
+
     await moverEstagio(admin, ctx.leadId, "convertido", { origem: "agente", detalhe });
+    // Fatia 6, Task 4 (spec §8.1): grava o campo PRÓPRIO que decide o modo
+    // pós-venda (definirModo, politica.ts) — não é mais o estágio "convertido"
+    // sozinho quem decide isso. A garantia de que "comprou" só chega aqui com
+    // confirmação EXPLÍCITA ("comprei", não "quero essa") é de PROMPT
+    // (COMO_USAR_AS_TOOLS em prompt.ts e SUPORTE_ANTES_DA_CONFIRMACAO em
+    // conhecimento.ts), não de parsing — esta tool grava o campo sempre que é
+    // chamada com resultado "comprou", sem tentar validar o texto do "detalhe".
+    await atualizarLead(admin, ctx.leadId, { compra_confirmada_em: new Date().toISOString() });
     // A régua morre aqui: quem comprou não recebe toque de remarketing.
     await limparAgendamento(admin, ctx.conversaId);
     return {

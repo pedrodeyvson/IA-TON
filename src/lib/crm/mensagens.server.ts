@@ -1,5 +1,7 @@
-// Histórico e envio de texto. Usado pelo agente (remetente "ia") e, na Fatia 5,
+// Histórico e envio de texto. Usado pelo agente (remetente "ia") e, na Fatia 4,
 // pelo Pedro respondendo no inbox (remetente "humano") — uma implementação só.
+import { ehFalhaDoDestinatario } from "../uazapi/erros.ts";
+import { registrarFalhaDeEnvio, zerarFalhasDestinatario } from "./conversas.server.ts";
 
 export async function listarMensagens(
   admin: any,
@@ -11,6 +13,11 @@ export async function listarMensagens(
     .select("id, remetente, direcao, tipo, conteudo, transcricao, transcricao_status, media_path, status, timestamp_ms, criado_em")
     .eq("conversa_id", conversaId)
     .order("timestamp_ms", { ascending: false })
+    // Desempate por id: duas mensagens com o MESMO timestamp_ms (comum quando
+    // o lead manda duas seguidas) sairiam em ordem arbitrária, e a cada poll
+    // de 5s a ordem podia trocar — o que muda qual é a "última" mensagem e
+    // reembaralha a tela sem nada ter acontecido.
+    .order("id", { ascending: false })
     .limit(limite);
   // O banco devolve do mais novo para o mais velho (o índice é assim); a
   // conversa se lê ao contrário.
@@ -118,8 +125,22 @@ export async function enviarTextoDoCrm(
     resposta = await enviar(params.telefone, texto);
   } catch (err: any) {
     const erroEnvio = err?.message ?? "erro desconhecido ao enviar";
+    // Falha do destinatário (bloqueou/número não existe) vs transitória (rede,
+    // rate limit, timeout) — só a primeira conta para `falhas_destinatario`;
+    // a segunda continua sendo domínio exclusivo de `registrarFalha`/`tentativas`
+    // no worker, que já existe e não muda aqui.
+    await registrarFalhaDeEnvio(
+      admin,
+      params.conversaId,
+      params.leadId,
+      ehFalhaDoDestinatario(erroEnvio),
+    );
     return marcarFalhou(admin, mensagem.id, erroEnvio);
   }
+
+  // Envio bem-sucedido: qualquer sinal anterior de rejeição do destinatário
+  // deixa de valer — o número entrega normalmente.
+  await zerarFalhasDestinatario(admin, params.conversaId);
 
   // A UAZAPI alterna entre `messageid` e `id` conforme o endpoint — a Fatia 1
   // já tinha apanhado da mesma inconsistência com sourceID/sourceId.

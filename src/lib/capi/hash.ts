@@ -27,6 +27,12 @@ export function normalizarNome(valor: string): string {
 export type DadosUsuarioCapi = {
   /** Texto puro — NUNCA hasheado. Único identificador de clique do CTWA. */
   ctwa_clid?: string | null;
+  /** Texto puro. OBRIGATÓRIO em `action_source: business_messaging`: sem ele
+   *  (ou sem `whatsapp_business_account_id`) a Meta recusa TODO evento com
+   *  400 / code 100 / subcode 2804116 — "Falta a identificação da Página ou
+   *  da conta do WhatsApp Business". Não é PII: é o id da Página do Facebook
+   *  dona do número que roda os anúncios de CTWA. */
+  page_id?: string | null;
   telefone?: string | null;
   nome?: string | null;
   /** id do lead no nosso banco — vira `external_id` hasheado. */
@@ -34,16 +40,17 @@ export type DadosUsuarioCapi = {
 };
 
 /**
- * Monta o bloco `user_data` do evento CAPI. `ctwa_clid` vai em texto puro
- * (é assim que a Meta espera — não é PII, é um identificador de clique);
- * telefone, nome e external_id são hasheados em SHA-256 (padrão de todo
- * identificador pessoal na Conversions API).
+ * Monta o bloco `user_data` do evento CAPI. `ctwa_clid` e `page_id` vão em
+ * texto puro (é assim que a Meta espera — não são PII, são identificadores de
+ * clique e de Página); telefone, nome e external_id são hasheados em SHA-256
+ * (padrão de todo identificador pessoal na Conversions API).
  */
 export async function construirUserDataHasheado(
   dados: DadosUsuarioCapi,
 ): Promise<Record<string, string>> {
   const ud: Record<string, string> = {};
   if (dados.ctwa_clid) ud.ctwa_clid = dados.ctwa_clid;
+  if (dados.page_id) ud.page_id = dados.page_id;
   if (dados.telefone) {
     const digitos = dados.telefone.replace(/\D/g, "");
     if (digitos) ud.ph = await sha256Hex(digitos);

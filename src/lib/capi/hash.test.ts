@@ -72,17 +72,26 @@ test("construirUserDataHasheado: campos ausentes/vazios não entram no objeto", 
 test("construirUserDataHasheado: monta todos os campos juntos", async () => {
   const ud = await construirUserDataHasheado({
     ctwa_clid: "clid-1",
+    page_id: "374875799033778",
     telefone: "5511999999999",
     nome: "João Silva",
     externalId: "lead-123",
   });
   assert.deepEqual(ud, {
     ctwa_clid: "clid-1",
+    page_id: "374875799033778",
     ph: SHA_PHONE_5511999999999,
     fn: SHA_JOAO,
     ln: SHA_SILVA,
     external_id: SHA_LEAD_123,
   });
+});
+
+test("construirUserDataHasheado: page_id vai em texto puro — hashear derruba o evento", async () => {
+  // A Meta valida o page_id contra a Página real; hasheado ele é "inválido"
+  // (subcode 2804070) e o evento é recusado igual a não mandar nada.
+  const ud = await construirUserDataHasheado({ page_id: "374875799033778" });
+  assert.deepEqual(ud, { page_id: "374875799033778" });
 });
 
 test("montarPayloadEvento: monta o formato exigido pela Meta (action_source/messaging_channel fixos)", () => {

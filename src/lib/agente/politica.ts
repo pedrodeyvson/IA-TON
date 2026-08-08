@@ -22,7 +22,7 @@ export type MotivoRecusa =
 
 export type ContextoTurno = {
   agenteAtivo: boolean;
-  motivo: "resposta" | "followup";
+  motivo: "resposta" | "followup" | "resgate";
   pausada: boolean;
   precisaAtencao: boolean;
   /** leads.nao_perturbe — o lead pediu para parar. É definitivo. */
@@ -72,6 +72,19 @@ export function decidirTurno(ctx: ContextoTurno): Decisao {
     return { responder: true };
   }
 
+  if (ctx.motivo === "resgate") {
+    // O resgate pré-link não tem teto fixo nem pausa (decisão §9 da spec: o
+    // limite de 4 toques é governado por sinal, não por norma, e cai fora
+    // depois do link sair). Quem impede um 5º toque é `planejarProximoResgate`
+    // (para de agendar depois do 4º) e o `check between 0 and 4` da coluna
+    // `resgate_toque` — não uma trava aqui, que bloquearia o próprio 4º toque
+    // (a etapa "toque enviado" do resgate é a mesma do agendamento, ver
+    // `agendarResgate`). Mesmo raciocínio do followup: o toque existe porque
+    // o lead NÃO respondeu, então não se exige que a última mensagem seja
+    // dele.
+    return { responder: true };
+  }
+
   // Resposta normal: se a última mensagem não é do lead, o agendamento ficou
   // órfão (ex.: o Pedro respondeu no meio). Responder seria falar sozinho.
   if (ctx.ultimoRemetente !== "lead") return { responder: false, motivo: "sem_mensagem_do_lead" };
@@ -80,14 +93,21 @@ export function decidirTurno(ctx: ContextoTurno): Decisao {
 }
 
 /**
- * Venda até o lead comprar; pós-venda depois disso.
+ * Venda até a compra ser CONFIRMADA; pós-venda só depois disso (Fatia 6,
+ * Task 4 — spec §8.1).
  *
- * O gatilho é o estágio `convertido`, que só a tool registrar_resultado_compra
- * grava — ou seja, o modo muda pela palavra do lead, que é a única confirmação
- * de compra que existe (a Ton não expõe isso).
+ * O gatilho é `leads.compra_confirmada_em`, que só `registrar_resultado_compra`
+ * (tools.ts) grava, e só quando o modelo recebe confirmação EXPLÍCITA nas
+ * palavras do lead ("comprei", "finalizei", "fiz o cadastro") — a garantia
+ * dessa exclusividade é de PROMPT, não de parsing (ver conhecimento.ts,
+ * `SUPORTE_ANTES_DA_CONFIRMACAO`). Antes desta task o gatilho era o estágio
+ * `convertido`: o mesmo campo que o caso real do lead 5521973174307 (spec §7)
+ * mostrou que podia ser atribuído sem o lead ter confirmado nada — "quero
+ * essa" virou suporte completo. `compra_confirmada_em` é um campo PRÓPRIO,
+ * separado do funil de estágio, para não herdar esse defeito.
  */
-export function definirModo(lead: { estagio: string }): "venda" | "pos_venda" {
-  return lead.estagio === "convertido" ? "pos_venda" : "venda";
+export function definirModo(lead: { compraConfirmadaEm?: string | null }): "venda" | "pos_venda" {
+  return lead.compraConfirmadaEm ? "pos_venda" : "venda";
 }
 
 const PEDIDOS_CURTOS = new Set(["para", "pare", "parar", "stop", "sair", "cancelar"]);

@@ -1,0 +1,114 @@
+import { Link, useParams } from "@tanstack/react-router";
+import { useState } from "react";
+import { conversaEmbutida, resumoDaLinha, rotuloDeEstagio, rotuloDeHorario } from "./rotulos";
+import { useConversas } from "./useConversas";
+
+type Filtro = "todas" | "atencao" | "assumidas";
+
+export function ListaConversas() {
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const { conversaId } = useParams({ strict: false }) as { conversaId?: string };
+
+  const { data: conversas = [], isLoading } = useConversas();
+
+  const visiveis = conversas.filter((c: any) => {
+    if (filtro === "atencao") return c.precisa_atencao;
+    if (filtro === "assumidas") return resumoDaLinha(c).assumida;
+    return true;
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex gap-1 border-b border-[var(--color-borda)] p-2 text-sm">
+        {(
+          [
+            ["todas", "Todas"],
+            ["atencao", "Atenção"],
+            ["assumidas", "Você assumiu"],
+          ] as Array<[Filtro, string]>
+        ).map(([valor, texto]) => (
+          <button
+            key={valor}
+            onClick={() => setFiltro(valor)}
+            className={
+              filtro === valor
+                ? "rounded bg-[var(--color-painel)] px-2 py-1"
+                : "px-2 py-1 text-[var(--color-suave)]"
+            }
+          >
+            {texto}
+          </button>
+        ))}
+      </div>
+
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {isLoading && <li className="p-4 text-[var(--color-suave)]">Carregando…</li>}
+        {!isLoading && visiveis.length === 0 && (
+          <li className="p-4 text-[var(--color-suave)]">Nenhuma conversa neste filtro.</li>
+        )}
+        {visiveis.map((lead: any) => {
+          const { titulo, assumida } = resumoDaLinha(lead);
+          // `conversaEmbutida` e não `lead.conversas?.[0]`: o PostgREST manda
+          // objeto quando a relação é to-one, e o índice [0] devolvia sempre
+          // undefined — todo link do inbox saía desabilitado.
+          const conversa = conversaEmbutida(lead);
+          // Boolean() antes da comparação: em /inbox, sem conversa aberta,
+          // conversaId é undefined — e um lead que ainda não tem linha de
+          // conversa também tem id undefined. Sem a guarda, undefined ===
+          // undefined marcaria todos eles como selecionados de uma vez.
+          const selecionada = Boolean(conversa?.id) && conversa.id === conversaId;
+          return (
+            <li key={lead.id}>
+              <Link
+                to="/inbox/$conversaId"
+                params={{ conversaId: conversa?.id ?? "" }}
+                search={{ leadId: lead.id }}
+                disabled={!conversa?.id}
+                className={`block border-b border-[var(--color-borda)] p-3 ${
+                  selecionada ? "bg-[var(--color-painel)]" : ""
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {lead.foto_url ? (
+                    <img src={lead.foto_url} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-painel)] text-xs">
+                      {(titulo?.[0] ?? "?").toUpperCase()}
+                    </div>
+                  )}
+                  <span className="truncate font-medium">{titulo}</span>
+                  {lead.precisa_atencao && <span title="Precisa de atenção">⚠️</span>}
+                  {lead.nao_perturbe && <span title="Não perturbe">🔇</span>}
+                  {lead.nao_lidas > 0 && (
+                    <span className="ml-auto rounded-full bg-[var(--color-ia)] px-2 text-xs">
+                      {lead.nao_lidas}
+                    </span>
+                  )}
+                </div>
+                <p className="truncate text-sm text-[var(--color-suave)]">
+                  {lead.ultima_mensagem_preview ?? "—"}
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs text-[var(--color-suave)]">
+                  <span>{rotuloDeEstagio(lead.estagio ?? "")}</span>
+                  <span>·</span>
+                  <span>{assumida ? "você assumiu" : "IA respondendo"}</span>
+                  {lead.maquina_interesse && (
+                    <span className="rounded bg-[var(--color-painel)] px-1.5">{lead.maquina_interesse}</span>
+                  )}
+                  {lead.origem === "anuncio" && (
+                    <span className="rounded bg-[var(--color-painel)] px-1.5">📣 {lead.ad_title || "Meta Ads"}</span>
+                  )}
+                  {lead.ultima_mensagem_em && (
+                    <time className="ml-auto shrink-0" dateTime={lead.ultima_mensagem_em}>
+                      {rotuloDeHorario(lead.ultima_mensagem_em)}
+                    </time>
+                  )}
+                </div>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

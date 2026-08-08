@@ -70,6 +70,29 @@ test("toque PODE rodar com a última mensagem sendo da IA", () => {
   assert.deepEqual(decidirTurno(TOQUE), { responder: true });
 });
 
+// ===================== Fatia 6, Task 3: resgate pré-link =====================
+
+const RESGATE = { ...OK, motivo: "resgate" as const, ultimoRemetente: "ia" };
+
+test("toque de resgate PODE rodar com a última mensagem sendo da IA", () => {
+  // Mesmo caso do toque oficial: o toque existe porque o lead NÃO respondeu.
+  assert.deepEqual(decidirTurno(RESGATE), { responder: true });
+});
+
+test("nao_perturbe interrompe o resgate sempre — invariante que não muda", () => {
+  assert.deepEqual(decidirTurno({ ...RESGATE, naoPerturbe: true }), {
+    responder: false, motivo: "nao_perturbe",
+  });
+});
+
+test("resgate não tem teto fixo nem pausa — quem para é planejarProximoResgate, não decidirTurno", () => {
+  // Diferente do toque oficial (que bloqueia toqueAtual >= 4): o resgate
+  // sempre responde quando chamado. O 4º toque em si RODA normalmente; quem
+  // impede um 5º é a régua pura (resgate.ts), não uma trava de contagem
+  // aqui — ver a Task 3 (agente.server.ts).
+  assert.deepEqual(decidirTurno({ ...RESGATE, toqueAtual: 4 }), { responder: true });
+});
+
 test("o ciclo acaba no 4º toque — não existe 5º", () => {
   assert.deepEqual(decidirTurno({ ...TOQUE, toqueAtual: 4 }), {
     responder: false, motivo: "ciclo_encerrado",
@@ -107,12 +130,15 @@ test("a trava de 1 por dia não atrapalha a resposta a uma mensagem do lead", ()
   assert.deepEqual(decidirTurno({ ...OK, ultimaMensagemIaMs: cincoMinAtras }), { responder: true });
 });
 
-test("modo pós-venda só depois que o lead virou cliente", () => {
-  assert.equal(definirModo({ estagio: "convertido" }), "pos_venda");
-  assert.equal(definirModo({ estagio: "qualificando" }), "venda");
-  assert.equal(definirModo({ estagio: "link_enviado" }), "venda");
-  assert.equal(definirModo({ estagio: "" }), "venda");
+// ===================== Fatia 6, Task 4: modo por compra confirmada =====================
+
+test("modo pós-venda só depois que compra_confirmada_em está preenchido", () => {
+  assert.equal(definirModo({ compraConfirmadaEm: "2026-08-08T11:48:00.000Z" }), "pos_venda");
+  assert.equal(definirModo({ compraConfirmadaEm: null }), "venda");
+  assert.equal(definirModo({ compraConfirmadaEm: undefined }), "venda");
+  assert.equal(definirModo({}), "venda");
 });
+
 
 test("pediuParaParar reconhece o pedido de opt-out", () => {
   for (const texto of [

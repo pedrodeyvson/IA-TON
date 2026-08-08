@@ -7,9 +7,38 @@ import { PRODUTOS } from "./links.ts";
 const CTX = { leadId: "L1", conversaId: "C1" };
 const REF = "CEA4255F-0783-4EAD-AA55-48C682BA8FA7";
 
+/**
+ * Lead que JÁ respondeu alguma coisa — é o estado normal quando a IA chega a
+ * mandar link ou mover estágio. `mensagens.select` precisa vir preenchido
+ * porque `coletarEvidenciaDoLead` conta as falas do lead para decidir o teto
+ * de estágio e para liberar `registrar_link_enviado`.
+ */
 function adminComLead(estagio = "qualificando") {
   return criarAdminFake({
-    "leads.select": { data: { id: "L1", estagio }, error: null },
+    "leads.select": {
+      data: {
+        id: "L1",
+        estagio,
+        maquina_interesse: "T3",
+        // Espelha o mundo real: quem está em "link_enviado" (ou depois) só
+        // chegou lá porque o link SAIU. `registrar_resultado_compra` (Fatia
+        // 6, revisão final) exige essa evidência antes de aceitar "comprou".
+        link_enviado_em: estagio === "link_enviado" ? "2026-08-08T12:00:00.000Z" : null,
+      },
+      error: null,
+    },
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
+  });
+}
+
+/** Lead que só clicou no anúncio: a única "fala" é a saudação pronta do botão. */
+function adminSoComSaudacao() {
+  return criarAdminFake({
+    "leads.select": { data: { id: "L1", estagio: "novo" }, error: null },
+    "mensagens.select": {
+      data: [{ conteudo: "Olá! QUERO ADQUIRIR UMA MÁQUINA DA TON." }],
+      error: null,
+    },
   });
 }
 
@@ -160,6 +189,10 @@ test("registrar_link_enviado não manda o link quando o toque é recusado por n�
   process.env.TON_REFERRER = REF;
   const admin = criarAdminFake({
     "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    // A guarda de evidência roda antes da checagem de não-perturbe: sem uma
+    // fala real do lead, o link seria recusado por outro motivo e o teste
+    // deixaria de exercitar o que ele existe para exercitar.
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
     "conversas.select": { data: { id: "C1", leads: { nao_perturbe: true } }, error: null },
   });
   const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
@@ -175,6 +208,10 @@ test("registrar_link_enviado não manda o link quando não dá para confirmar o 
   process.env.TON_REFERRER = REF;
   const admin = criarAdminFake({
     "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    // A guarda de evidência roda antes da checagem de não-perturbe: sem uma
+    // fala real do lead, o link seria recusado por outro motivo e o teste
+    // deixaria de exercitar o que ele existe para exercitar.
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
     "conversas.select": () => ({ data: null, error: { message: "conexão com o banco caiu" } }),
   });
   const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
@@ -196,6 +233,88 @@ test("resultado comprou converte o lead e encerra a régua", async () => {
   );
   assert.ok(conversa, "nenhum toque pode sair depois da compra");
   assert.match(r.conteudo, /pós-venda|pos-venda/i);
+});
+
+// ===================== Fatia 6, Task 4: compra_confirmada_em =====================
+// A garantia de que "comprou" só chega com confirmação EXPLÍCITA é de PROMPT
+// (COMO_USAR_AS_TOOLS/SUPORTE_ANTES_DA_CONFIRMACAO) — o que este teste prova é
+// a metade de CÓDIGO: o campo é gravado QUANDO e SÓ QUANDO a tool é chamada
+// com resultado "comprou", nunca antes e nunca para os outros resultados.
+
+test("resultado comprou grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  const antes = Date.now();
+  await executarTool(admin, "registrar_resultado_compra", { resultado: "comprou" }, CTX);
+
+  const atualizacoesLeads = admin.chamadas.filter(
+    (c: any) => c.tabela === "leads" && c.operacao === "update",
+  );
+  const confirmacao = atualizacoesLeads.find(
+    (u: any) => u.payload.compra_confirmada_em !== undefined,
+  );
+  assert.ok(confirmacao, "tem que gravar compra_confirmada_em");
+  const gravadoEm = new Date(confirmacao!.payload.compra_confirmada_em).getTime();
+  assert.ok(gravadoEm >= antes, "o timestamp é do momento da confirmação, não anterior");
+});
+
+test("resultado comprou sem link_enviado_em é recusado — sem link não há como ter comprado", async () => {
+  const admin = adminComLead("qualificando"); // link_enviado_em fica null
+  const r = await executarTool(admin, "registrar_resultado_compra", { resultado: "comprou" }, CTX);
+
+  assert.match(r.conteudo, /nunca recebeu o link/i);
+  assert.equal(updateDe(admin, "leads").estagio, undefined, "não pode converter sem evidência");
+  assert.equal(
+    admin.chamadas.some(
+      (c: any) =>
+        c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+    ),
+    false,
+    "sem link, sem evento de compra na Meta CAPI",
+  );
+  assert.equal(updateDe(admin, "leads").precisa_atencao, true);
+});
+
+test("resultado nao_comprou NÃO grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  await executarTool(
+    admin,
+    "registrar_resultado_compra",
+    { resultado: "nao_comprou", detalhe: "achou a taxa alta" },
+    CTX,
+  );
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
+});
+
+test("resultado nao_perturbe NÃO grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  await executarTool(
+    admin,
+    "registrar_resultado_compra",
+    { resultado: "nao_perturbe", detalhe: "pediu para não mandar mais" },
+    CTX,
+  );
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
+});
+
+test("resultado inventado não grava compra_confirmada_em (nada é gravado)", async () => {
+  const admin = adminComLead();
+  await executarTool(admin, "registrar_resultado_compra", { resultado: "talvez" }, CTX);
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
 });
 
 test("resultado nao_comprou guarda o motivo e manda quebrar a objeção agora", async () => {
@@ -255,4 +374,25 @@ test("tool desconhecida devolve erro ao modelo sem lançar", async () => {
   const admin = adminComLead();
   const r = await executarTool(admin, "deletar_banco", {}, CTX);
   assert.match(r.conteudo, /desconhecida/i);
+});
+
+// Regressão do buraco achado na revisão final: `registrar_link_enviado`
+// gravava link_enviado_em sem passar por evidência, e como
+// estagioMaximoPermitido lê esse campo, a tool DESCOBERTA levantava o teto da
+// tool travada. Além disso moverEstagio("link_enviado") dispara a cascata
+// inteira da CAPI: três conversões por um lead que nunca digitou nada.
+test("link não sai para lead que só clicou no anúncio, e nada é gravado", async () => {
+  const admin = adminSoComSaudacao();
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+
+  assert.match(r.conteudo, /ainda não respondeu nada/);
+  assert.doesNotMatch(r.conteudo, /https:\/\//, "não pode vazar link na recusa");
+  assert.equal(updateDe(admin, "leads"), undefined, "não pode mover estágio nem gravar comissão");
+  assert.equal(updateDe(admin, "conversas"), undefined, "não pode reiniciar ciclo");
+});
+
+test("uma resposta de verdade do lead libera o link", async () => {
+  const admin = adminComLead();
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+  assert.match(r.conteudo, /https:\/\/ton\.com\.br\/catalogo/);
 });

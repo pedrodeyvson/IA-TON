@@ -66,6 +66,7 @@ buildar) → `build` (roda `bun run build`) → `runtime` (imagem final: só
 | --- | --- |
 | `META_PIXEL_ID` | ID do Pixel da Meta, para a integração de Conversions API (CAPI). Omitido = integração CAPI fica inativa. |
 | `META_CAPI_TOKEN` | Token de acesso da Conversions API da Meta. |
+| `META_PAGE_ID` | Id da Página do Facebook dona do número de WhatsApp que roda os anúncios. Obrigatório junto com pixel e token: a Meta recusa todo evento de `business_messaging` sem `user_data.page_id` (400, subcode 2804116). Configurado pela metade = zero eventos e nenhuma atribuição. |
 | `META_CAPI_TEST_CODE` | Código de teste da Meta (Test Events Tool), só para depuração — não usar em produção. |
 | `PORT` | Porta em que o servidor escuta dentro do container. Default `3000`. |
 | `HOST` | Interface em que o servidor escuta. Default `0.0.0.0` (necessário para o EasyPanel/Docker rotear tráfego até o container). |

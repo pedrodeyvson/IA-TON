@@ -29,6 +29,23 @@ export type CapiResult = {
   error?: string;
 };
 
+/**
+ * Extrai da resposta de erro da Meta o texto que realmente identifica o
+ * problema. `error.message` é genérico ("Invalid parameter") e sozinho não
+ * permite diagnosticar nada; `error_subcode` e `error_user_msg` é que dizem o
+ * quê. Cai para o corpo cru se a resposta não for o JSON de erro esperado.
+ */
+export function detalharErroMeta(parsed: any, corpoCru: string): string {
+  const erro = parsed?.error;
+  if (!erro) return corpoCru;
+  const partes = [
+    erro.error_subcode != null ? `subcode ${erro.error_subcode}` : null,
+    erro.error_user_msg || erro.error_user_title || null,
+    erro.message || null,
+  ].filter(Boolean);
+  return partes.length > 0 ? partes.join(" | ") : corpoCru;
+}
+
 export type DadosUsuarioEnvio = {
   /** texto puro, nunca hasheado. */
   ctwaClid?: string | null;
@@ -51,10 +68,24 @@ export async function enviarEventoCapi(
 ): Promise<CapiResult> {
   const pixelId = process.env.META_PIXEL_ID;
   const token = process.env.META_CAPI_TOKEN;
+  const pageId = process.env.META_PAGE_ID;
 
   // Degrada em silêncio: o sistema tem que funcionar sem CAPI configurado.
   if (!pixelId || !token) {
     return { ok: false, skipped: true };
+  }
+
+  // Pixel e token configurados MAS sem page_id não é "CAPI desligado", é
+  // configuração pela metade: a Meta recusa 100% dos eventos de
+  // business_messaging sem `user_data.page_id` (subcode 2804116). Enviar
+  // assim só enche `eventos_capi` de erro e esconde o problema real — pula
+  // e reclama alto, para o dono ver que a atribuição está morta.
+  if (!pageId) {
+    console.warn(
+      `[capi] META_PAGE_ID ausente — ${eventName} do lead ${leadId} não foi enviado. ` +
+        "A Meta recusa business_messaging sem page_id (subcode 2804116) e a atribuição de anúncio fica sem nenhum evento.",
+    );
+    return { ok: false, skipped: true, error: "META_PAGE_ID ausente" };
   }
 
   try {
@@ -76,10 +107,12 @@ export async function enviarEventoCapi(
   }
 
   const eventId = crypto.randomUUID();
+  let payloadParaGravar: any = null;
 
   try {
     const userData = await construirUserDataHasheado({
       ctwa_clid: dadosUsuario.ctwaClid,
+      page_id: pageId,
       telefone: dadosUsuario.telefone,
       nome: dadosUsuario.nome,
       externalId: leadId,
@@ -93,6 +126,7 @@ export async function enviarEventoCapi(
       customData: dadosCustom,
       testEventCode: process.env.META_CAPI_TEST_CODE,
     });
+    payloadParaGravar = payload;
 
     const url = `${META_CAPI_URL}/${pixelId}/events?access_token=${encodeURIComponent(token)}`;
     const res = await fetch(url, {
@@ -107,7 +141,13 @@ export async function enviarEventoCapi(
     try { parsed = JSON.parse(texto); } catch { /* ignore */ }
 
     const ok = res.ok;
-    const statusResposta = ok ? "ok" : `erro:${res.status}:${(parsed?.error?.message ?? texto).slice(0, 200)}`;
+    // `error.message` da Meta é sempre genérico ("Invalid parameter"). O que
+    // diz QUAL parâmetro está errado é `error_user_msg` + `error_subcode`;
+    // gravar só a mensagem genérica deixa a linha de erro inútil para
+    // diagnóstico. Ordem: detalhe primeiro, porque o campo é truncado.
+    const statusResposta = ok
+      ? "ok"
+      : `erro:${res.status}:${detalharErroMeta(parsed, texto).slice(0, 200)}`;
 
     try {
       await admin.from("eventos_capi").insert({
@@ -116,13 +156,15 @@ export async function enviarEventoCapi(
         event_id: eventId,
         enviado_em: new Date().toISOString(),
         status_resposta: statusResposta,
+        payload,
+        resposta: parsed ?? { texto_cru: texto.slice(0, 500) },
       });
     } catch (err: any) {
       console.warn(`[capi] falha ao gravar registro de ${eventName} para lead ${leadId}:`, err?.message ?? err);
     }
 
     if (!ok) {
-      const errorMsg = parsed?.error?.message ?? texto.slice(0, 300);
+      const errorMsg = detalharErroMeta(parsed, texto).slice(0, 300);
       console.error("[capi] erro ao enviar evento:", { status: res.status, event: eventName, error: errorMsg });
       return { ok: false, eventId, error: errorMsg };
     }
@@ -138,6 +180,7 @@ export async function enviarEventoCapi(
         event_id: eventId,
         enviado_em: new Date().toISOString(),
         status_resposta: `erro:exceção:${String(err?.message ?? err).slice(0, 200)}`,
+        payload: payloadParaGravar ?? null,
       });
     } catch { /* best-effort — não pode quebrar o fluxo principal */ }
     return { ok: false, eventId, error: err?.message ?? "Erro desconhecido" };
@@ -145,11 +188,13 @@ export async function enviarEventoCapi(
 }
 
 export type DadosParaSincronizar = {
-  /** Presença de ctwaClid OU adSourceId é o que decide se o lead tem
-   *  atribuição de anúncio. Sem nenhum dos dois, é lead orgânico — a Meta
-   *  não tem como atribuir a conversão, e não faz sentido nem consultar o
-   *  banco. */
+  /** O ctwaClid é o que decide se dá para enviar. A Meta exige `ctwa_clid` em
+   *  `business_messaging`: sem ele o evento volta 400/subcode 2804071, mesmo
+   *  com adSourceId presente. Um lead pode chegar de anúncio com sourceId e
+   *  sem clid — é atribuição válida para o nosso CRM, mas não para a CAPI. */
   ctwaClid?: string | null;
+  /** Só informativo, em `custom_data.source_id`. Nunca habilita o envio
+   *  sozinho — ver acima. */
   adSourceId?: string | null;
   telefone?: string | null;
   nome?: string | null;
@@ -178,7 +223,7 @@ export async function sincronizarEventosCapi(
   estagioAtual: string,
   dados: DadosParaSincronizar,
 ): Promise<void> {
-  if (!dados.ctwaClid && !dados.adSourceId) return;
+  if (!dados.ctwaClid) return;
 
   try {
     const { data: existentes } = await admin
@@ -216,4 +261,19 @@ export async function sincronizarEventosCapi(
   } catch (err: any) {
     console.warn(`[capi] falha ao sincronizar eventos do lead ${leadId}:`, err?.message ?? err);
   }
+}
+
+/**
+ * Disparos CAPI de um lead, mais recente primeiro — para o painel mostrar o
+ * que foi mandado e o que a Meta respondeu. Só para o dono (a chamada em
+ * crm.functions.ts já está atrás de exigirSessao): o payload carrega
+ * ph/external_id hasheados e o ctwa_clid em texto puro.
+ */
+export async function listarDisparosCapi(admin: any, leadId: string): Promise<any[]> {
+  const { data } = await admin
+    .from("eventos_capi")
+    .select("id, nome_evento, event_id, enviado_em, status_resposta, payload, resposta")
+    .eq("lead_id", leadId)
+    .order("enviado_em", { ascending: false, nullsFirst: false });
+  return data ?? [];
 }

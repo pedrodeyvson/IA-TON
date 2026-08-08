@@ -5,13 +5,16 @@
 // tool registrar_link_enviado devolve o endereço pronto — assim não há como ele
 // colar link cedo, digitar errado ou vazar o referrer numa conversa qualquer.
 import {
+  ANGULO_DO_RESGATE,
   ANGULO_DO_TOQUE,
   CONHECIMENTO_POS_VENDA,
   CONHECIMENTO_VENDA,
+  MODO_CONFIRMACAO,
   REGRAS_ESCALACAO,
 } from "./conhecimento.ts";
 import { PRODUTOS } from "./links.ts";
 import { TOTAL_DE_TOQUES } from "../crm/regua.ts";
+import { TOTAL_DE_TOQUES_RESGATE } from "../crm/resgate.ts";
 
 export type ModoDoAgente = "venda" | "pos_venda";
 
@@ -67,8 +70,10 @@ const COMO_USAR_AS_TOOLS = `
   esta tool quando ele confirmar que quer aquela máquina de verdade. Se ele ainda não decidiu
   a máquina, escolha "catalogo".
 - **registrar_resultado_compra** — quando o cliente disser o que aconteceu:
-  "comprou" (aí você entra em modo pós-venda), "nao_comprou" (mande o motivo em detalhe e
-  quebre a objeção na mesma mensagem, sem desistir) ou "nao_perturbe" (ele pediu para parar).
+  "comprou" só com confirmação EXPLÍCITA nas palavras dele — "comprei", "finalizei", "fiz o
+  cadastro", "chegou a maquininha" (aí você entra em modo pós-venda; "quero essa" NÃO conta,
+  é intenção, continue conduzindo), "nao_comprou" (mande o motivo em detalhe e quebre a
+  objeção na mesma mensagem, sem desistir) ou "nao_perturbe" (ele pediu para parar).
 - **escalar_para_humano** — passa a conversa para o Pedro e encerra o seu turno.
 
 ### Produtos que você pode escolher em registrar_link_enviado
@@ -81,8 +86,16 @@ O Ton Black só existe para CNPJ e só nos níveis T3 e T3 Smart — não ofere�
 export function montarSystemPrompt(params: {
   lead: LeadNoPrompt;
   modo: ModoDoAgente;
+  /**
+   * Fatia 6, Task 4 (spec §8.1) — sub-estado de "venda": true quando o link já
+   * saiu (`link_enviado_em` preenchido) mas a compra ainda não foi confirmada
+   * (`compra_confirmada_em` vazio). Ignorado em modo "pos_venda" — lá a compra
+   * já está confirmada por definição. Não é um terceiro valor de
+   * `ModoDoAgente`, é conteúdo condicional dentro do mesmo modo "venda".
+   */
+  confirmacaoPendente?: boolean;
 }): string {
-  const { lead, modo } = params;
+  const { lead, modo, confirmacaoPendente } = params;
   const nome = lead.nome?.trim();
   const maquina = lead.maquina_interesse?.trim();
 
@@ -94,9 +107,11 @@ export function montarSystemPrompt(params: {
 
   const base = modo === "pos_venda" ? CONHECIMENTO_POS_VENDA : CONHECIMENTO_VENDA;
 
-  return [base, REGRAS_ESCALACAO, COMO_USAR_AS_TOOLS, "## Estado deste lead", estado].join(
-    "\n\n",
-  );
+  const blocos = [base, REGRAS_ESCALACAO];
+  if (modo === "venda" && confirmacaoPendente) blocos.push(MODO_CONFIRMACAO);
+  blocos.push(COMO_USAR_AS_TOOLS, "## Estado deste lead", estado);
+
+  return blocos.join("\n\n");
 }
 
 /**
@@ -123,6 +138,33 @@ export function instrucaoDoToque(toque: number): string {
     "- Não invente prazo, cupom que está acabando nem escassez. Urgência falsa é proibida.",
     "- Não cole o link de novo e não cobre resposta.",
     "- Só use as tools atualizar_lead, registrar_resultado_compra ou escalar_para_humano.",
+  ].join("\n");
+}
+
+/**
+ * O gatilho de um toque do RESGATE pré-link (spec §4) — cadência separada da
+ * régua oficial (`instrucaoDoToque`), usada enquanto o link ainda não saiu.
+ * Mesmo desenho: entra como `system`, nunca como fala do cliente, e o
+ * histórico completo vai junto para o modelo não repetir argumento.
+ */
+export function instrucaoDoResgate(toque: number): string {
+  if (!Number.isInteger(toque) || toque < 1 || toque > TOTAL_DE_TOQUES_RESGATE) {
+    throw new Error(`toque de resgate ${toque} está fora da cadência (1..${TOTAL_DE_TOQUES_RESGATE})`);
+  }
+
+  return [
+    `Você está no toque ${toque} de ${TOTAL_DE_TOQUES_RESGATE} do RESGATE — o cliente ainda não`,
+    "respondeu desde a primeira mensagem dele, e o link ainda não saiu.",
+    "",
+    `Ângulo deste toque: ${ANGULO_DO_RESGATE[toque as 1 | 2 | 3 | 4]}`,
+    "",
+    "Regras deste turno:",
+    "- Mande uma única mensagem, curta, que caiba em uma tela de WhatsApp.",
+    "- Não repita a pergunta de Situação já feita nesta conversa. Cada toque muda de ângulo.",
+    "- Não invente prazo, cupom que está acabando nem escassez. Urgência falsa é proibida.",
+    "- Não mande link nenhum: link só sai depois que ele responder e você chamar a tool.",
+    "- Só use as tools atualizar_lead, registrar_link_enviado, registrar_resultado_compra ou " +
+      "escalar_para_humano.",
   ].join("\n");
 }
 

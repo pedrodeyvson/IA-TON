@@ -32,6 +32,10 @@ export type CamposEditaveis = {
   nome?: string | null;
   maquina_interesse?: string | null;
   comissao_estimada?: number | null;
+  /** Fatia 6, Task 4 (spec §8.1) — só `registrar_resultado_compra` (tools.ts)
+   *  grava, e só com resultado "comprou". Decide o modo pós-venda em
+   *  `definirModo` (politica.ts). */
+  compra_confirmada_em?: string | null;
 };
 
 export async function atualizarLead(
@@ -112,4 +116,80 @@ export async function marcarPrecisaAtencao(
 
 export async function registrarNota(admin: any, leadId: string, texto: string): Promise<void> {
   await registrarEvento(admin, leadId, "nota", { texto });
+}
+
+/**
+ * Junta a evidência que sustenta (ou não) o estágio que a IA quer gravar.
+ * Ver `limitarEstagio` em estagios.ts para o porquê — resumo: em 08/08/2026
+ * quatro leads estavam em "qualificando" tendo apenas clicado no anúncio.
+ *
+ * A saudação pronta do botão do anúncio é descontada: ela chega como mensagem
+ * do lead, mas não foi ele quem escreveu.
+ */
+export async function coletarEvidenciaDoLead(admin: any, leadId: string) {
+  const { ehSaudacaoDeAnuncio } = await import("./estagios.ts");
+
+  const { data: lead } = await admin
+    .from("leads")
+    .select("estagio, maquina_interesse, link_enviado_em, compra_confirmada_em")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  const { data: falas } = await admin
+    .from("mensagens")
+    .select("conteudo")
+    .eq("lead_id", leadId)
+    .eq("remetente", "lead")
+    .limit(50);
+
+  const respostasDoLead = (falas ?? []).filter(
+    (m: any) => !ehSaudacaoDeAnuncio(m.conteudo),
+  ).length;
+
+  return {
+    respostasDoLead,
+    temInteresse: Boolean(lead?.maquina_interesse),
+    linkEnviado: Boolean(lead?.link_enviado_em),
+    // Fatia 6, Task 4: quem decide "comprou de verdade" é compra_confirmada_em
+    // (só `registrar_resultado_compra` grava), não mais o estágio sozinho —
+    // ver o mesmo raciocínio em `definirModo` (politica.ts).
+    compraConfirmada: Boolean(lead?.compra_confirmada_em),
+  };
+}
+
+/**
+ * Timestamp (ms) da PRIMEIRA mensagem real do lead — descontada a saudação
+ * automática do botão do anúncio, mesmo critério de `coletarEvidenciaDoLead`.
+ *
+ * É o marco zero da cadência de resgate pré-link (spec §4): o silêncio do
+ * lead só começa a contar da primeira coisa que ELE escreveu, nunca do
+ * clique no anúncio (que manda a saudação pronta sem ele ter digitado nada).
+ *
+ * `null` quando o lead ainda não escreveu nada de verdade — quem chama decide
+ * o fallback (`planejarProximoResgate` já conta a partir de "agora" quando
+ * recebe uma data ilegível).
+ */
+export async function obterPrimeiraRespostaDoLead(
+  admin: any,
+  leadId: string,
+): Promise<number | null> {
+  const { ehSaudacaoDeAnuncio } = await import("./estagios.ts");
+
+  const { data: falas } = await admin
+    .from("mensagens")
+    .select("remetente, conteudo, timestamp_ms")
+    .eq("lead_id", leadId)
+    .eq("remetente", "lead")
+    .limit(50);
+
+  // Filtra remetente também do lado de cá (não só na query): mesma defesa em
+  // profundidade já usada em `motivoParaRecusarAgendamento` — não depender só
+  // de disciplina externa (aqui, de o `.eq` ter sido aplicado de verdade).
+  const respostasReais = (falas ?? [])
+    .filter((m: any) => m.remetente === "lead" && !ehSaudacaoDeAnuncio(m.conteudo))
+    .map((m: any) => Number(m.timestamp_ms))
+    .filter((ms: number) => Number.isFinite(ms));
+
+  if (respostasReais.length === 0) return null;
+  return Math.min(...respostasReais);
 }
