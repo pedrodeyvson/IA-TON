@@ -49,7 +49,11 @@ export function ListaConversas() {
         {visiveis.map((lead: any) => {
           const { titulo, assumida } = resumoDaLinha(lead);
           const conversa = lead.conversas?.[0];
-          const selecionada = conversa?.id === conversaId;
+          // Boolean() antes da comparação: em /inbox, sem conversa aberta,
+          // conversaId é undefined — e um lead que ainda não tem linha de
+          // conversa também tem id undefined. Sem a guarda, undefined ===
+          // undefined marcaria todos eles como selecionados de uma vez.
+          const selecionada = Boolean(conversa?.id) && conversa.id === conversaId;
           return (
             <li key={lead.id}>
               <Link

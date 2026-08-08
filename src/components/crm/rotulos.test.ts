@@ -15,6 +15,10 @@ test("estágio desconhecido não quebra a tela", () => {
 test("lead sem nome aparece pelo telefone", () => {
   const { titulo } = resumoDaLinha({ nome: null, telefone: "5511999999999" });
   assert.equal(titulo, "5511999999999");
+
+  // Nome só com espaço não pode "ganhar" do telefone: o .trim() existe para isso.
+  const espacoEmBranco = resumoDaLinha({ nome: "   ", telefone: "5511999999999" });
+  assert.equal(espacoEmBranco.titulo, "5511999999999");
 });
 
 test("lead sem nome e sem telefone ainda tem título", () => {
