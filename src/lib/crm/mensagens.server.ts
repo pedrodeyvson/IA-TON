@@ -8,7 +8,7 @@ export async function listarMensagens(
 ): Promise<any[]> {
   const { data } = await admin
     .from("mensagens")
-    .select("id, remetente, direcao, tipo, conteudo, transcricao, transcricao_status, status, timestamp_ms, criado_em")
+    .select("id, remetente, direcao, tipo, conteudo, transcricao, transcricao_status, media_path, status, timestamp_ms, criado_em")
     .eq("conversa_id", conversaId)
     .order("timestamp_ms", { ascending: false })
     .limit(limite);

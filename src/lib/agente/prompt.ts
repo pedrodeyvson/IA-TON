@@ -27,11 +27,18 @@ export type MensagemHistorico = {
   conteudo?: string | null;
   transcricao?: string | null;
   transcricao_status?: string | null;
+  /** URL assinada e já resolvida (I/O fica fora deste módulo puro) — só
+   *  preenchida para imagens quando o Storage tinha o arquivo. */
+  mediaUrl?: string | null;
 };
+
+export type ParteDeConteudo =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 export type MensagemChat = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ParteDeConteudo[] | null;
 };
 
 /** Só produtos com nome comercial no material entram na lista do modelo. */
@@ -166,7 +173,23 @@ export function montarMensagens(
     if (!texto) continue;
     // "humano" é o Pedro respondendo pelo inbox. Do ponto de vista do lead é a
     // mesma voz, então entra como assistant.
-    mensagens.push({ role: m.remetente === "lead" ? "user" : "assistant", content: texto });
+    const role = m.remetente === "lead" ? "user" : "assistant";
+
+    // Imagem com URL resolvida: manda de verdade pro modelo (multimodal),
+    // em vez do marcador de texto — a legenda (se houver) vai como texto.
+    if (m.tipo === "imagem" && m.mediaUrl) {
+      const legenda = m.conteudo?.trim();
+      mensagens.push({
+        role,
+        content: [
+          { type: "text", text: legenda || "O cliente enviou esta imagem." },
+          { type: "image_url", image_url: { url: m.mediaUrl } },
+        ],
+      });
+      continue;
+    }
+
+    mensagens.push({ role, content: texto });
   }
 
   return mensagens;

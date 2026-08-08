@@ -144,6 +144,24 @@ test("imagem vira marcador de texto nesta fatia", () => {
   assert.match(msgs[1].content ?? "", /imagem/i);
 });
 
+test("imagem com mediaUrl vira mensagem multimodal (texto + image_url) de verdade", () => {
+  const msgs = montarMensagens("SYS", [
+    { remetente: "lead", tipo: "imagem", conteudo: "essa aqui?", mediaUrl: "https://exemplo.com/foto.jpg" },
+  ]);
+  const conteudo = msgs[1].content as any[];
+  assert.ok(Array.isArray(conteudo));
+  assert.deepEqual(conteudo[0], { type: "text", text: "essa aqui?" });
+  assert.deepEqual(conteudo[1], { type: "image_url", image_url: { url: "https://exemplo.com/foto.jpg" } });
+});
+
+test("imagem sem mediaUrl continua no marcador de texto (fallback do Storage)", () => {
+  const msgs = montarMensagens("SYS", [
+    { remetente: "lead", tipo: "imagem", conteudo: "essa aqui?" },
+  ]);
+  assert.equal(typeof msgs[1].content, "string");
+  assert.match(msgs[1].content as string, /imagem/i);
+});
+
 test("imagem COM legenda mantém o marcador — a legenda não pode virar texto puro", () => {
   // Achado real em produção: sem isso, o modelo respondia como se tivesse
   // visto a foto, tendo só a legenda.

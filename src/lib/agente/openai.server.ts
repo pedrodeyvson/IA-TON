@@ -9,7 +9,9 @@ const TIMEOUT_MS = 45_000;
 
 export type MensagemChat = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  // Array de partes = mensagem multimodal (texto + image_url), usado quando
+  // o histórico manda uma imagem de verdade pro modelo (ver prompt.ts).
+  content: string | any[] | null;
   tool_calls?: any[];
   tool_call_id?: string;
 };

@@ -16,6 +16,33 @@ import { DEFINICOES_TOOLS, executarTool } from "./tools.ts";
 /** Quantas rodadas de tool o modelo pode pedir antes de a gente cortar. */
 export const MAX_ITERACOES_TOOL = 3;
 
+const BUCKET_MIDIA = "crm-midia";
+const TTL_URL_IMAGEM_SEGUNDOS = 300;
+
+/**
+ * Resolve URL assinada para as imagens do histórico que têm `media_path`,
+ * para o modelo enxergar de verdade (multimodal) em vez de só o marcador de
+ * texto. Best-effort: se o Storage falhar para uma mensagem, ela simplesmente
+ * fica sem `mediaUrl` e `montarMensagens` cai de volta no marcador — uma
+ * imagem que o modelo não consegue ver nunca pode derrubar o turno inteiro.
+ */
+async function resolverUrlsDeImagem(admin: any, historico: any[]): Promise<any[]> {
+  return Promise.all(
+    historico.map(async (m) => {
+      if (m.tipo !== "imagem" || !m.media_path) return m;
+      try {
+        const { data, error } = await admin.storage
+          .from(BUCKET_MIDIA)
+          .createSignedUrl(m.media_path, TTL_URL_IMAGEM_SEGUNDOS);
+        if (error || !data?.signedUrl) return m;
+        return { ...m, mediaUrl: data.signedUrl };
+      } catch {
+        return m;
+      }
+    }),
+  );
+}
+
 export type MotivoTurno = "resposta" | "followup";
 
 export type ResultadoTurno = {
@@ -50,7 +77,8 @@ export async function executarTurno(
     const { data: lead } = await admin.from("leads").select("*").eq("id", ctx.leadId).maybeSingle();
     if (!lead) return { status: "erro", motivo: "lead não encontrado" };
 
-    const historico = recortarHistorico(await listarMensagens(admin, ctx.conversaId, 60));
+    const historicoBruto = recortarHistorico(await listarMensagens(admin, ctx.conversaId, 60));
+    const historico = await resolverUrlsDeImagem(admin, historicoBruto);
     const ultima = historico[historico.length - 1];
     const ultimaDaCasa = [...historico].reverse().find((m: any) => m.remetente !== "lead");
     const agoraMs = Date.now();
