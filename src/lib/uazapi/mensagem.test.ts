@@ -22,6 +22,19 @@ test("classifica áudio de voz (PTT) no formato achatado real da UAZAPI", () => 
   assert.equal(m.direcao, "in");
 });
 
+test("classifica imagem com legenda no formato achatado, sem deixar a legenda virar texto", () => {
+  // Payload real (anonimizado): a UAZAPI expõe a legenda solta em item.text
+  // ("essa aqui?"). Sem checar mídia achatada ANTES de texto, isso virava
+  // mensagem de texto comum e a imagem inteira era perdida — bug real,
+  // confirmado em produção na validação da Fatia 2.
+  const item = fixtureReal("webhook-imagem-legenda.json");
+  const m = classificarMensagem(item);
+  assert.equal(m.tipo, "imagem");
+  assert.equal(m.conteudo, "essa aqui?");
+  assert.equal(m.mediaMime, "image/jpeg");
+  assert.equal(m.providerMessageId, "3ACA7548F2BB73918E18");
+});
+
 test("classifica mensagem de texto simples", () => {
   const m = classificarMensagem({
     messageid: "abc",

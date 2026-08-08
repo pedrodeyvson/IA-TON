@@ -53,6 +53,20 @@ function calcularTimestampMs(bruto: unknown): number | null {
   return n > 1_000_000_000_000 ? n : n * 1000;
 }
 
+/**
+ * Deriva o TipoMensagem a partir do prefixo de um mimetype padrão
+ * (`image/jpeg` -> "imagem"). Usado só no formato achatado (ver abaixo) —
+ * mimetype é o único sinal confiável que não depende de adivinhar a string
+ * exata que a UAZAPI usa em `mediaType`/`messageType` para cada tipo.
+ */
+function tipoPorMimetype(mimetype: string): TipoMensagem {
+  const prefixo = mimetype.split("/")[0];
+  if (prefixo === "audio") return "audio";
+  if (prefixo === "image") return "imagem";
+  if (prefixo === "video") return "video";
+  return "documento";
+}
+
 export function classificarMensagem(item: any): MensagemNormalizada {
   const conteudoBruto = parseConteudo(item?.content);
   // Envelope Baileys aninha o conteúdo real em `.message`; o formato antigo
@@ -65,6 +79,31 @@ export function classificarMensagem(item: any): MensagemNormalizada {
     direcao: (item?.fromMe ? "out" : "in") as "in" | "out",
     timestampMs: calcularTimestampMs(item?.messageTimestamp),
   };
+
+  // Mídia no formato ACHATADO: `content` já É o descritor de mídia direto
+  // (`mimetype`, `mediaKey`, `URL`...), sem `.message.audioMessage` aninhado
+  // do Baileys. Confirmado com dois payloads reais de produção — áudio de
+  // voz (fixtures/reais/webhook-audio-ptt.json, `content.PTT: true`) e
+  // imagem (`content.caption` + `content.mimetype: "image/jpeg"`).
+  //
+  // TEM QUE VIR ANTES da checagem de texto abaixo: a UAZAPI expõe a legenda
+  // da mídia solta em `item.text` (ex.: "essa aqui?" numa imagem) — sem essa
+  // ordem, uma imagem com legenda virava mensagem de texto comum, perdendo a
+  // mídia inteira. `mimetype` + `mediaKey` juntos são o sinal de que
+  // `content` é mídia, não conversa; a legenda vira `conteudo` do jeito que
+  // o Baileys já fazia.
+  if (
+    typeof conteudoBruto?.mimetype === "string" &&
+    typeof conteudoBruto?.mediaKey === "string"
+  ) {
+    return {
+      ...base,
+      tipo: tipoPorMimetype(conteudoBruto.mimetype),
+      conteudo: typeof conteudoBruto.caption === "string" ? conteudoBruto.caption : null,
+      mediaMime: conteudoBruto.mimetype,
+      mediaFilename: typeof conteudoBruto.fileName === "string" ? conteudoBruto.fileName : null,
+    };
+  }
 
   // Texto: a UAZAPI real já entrega o texto pronto em `item.text` (campo
   // flat no nível raiz) — funciona mesmo quando content é a string plana
@@ -90,24 +129,6 @@ export function classificarMensagem(item: any): MensagemNormalizada {
         mediaFilename: typeof midia.fileName === "string" ? midia.fileName : null,
       };
     }
-  }
-
-  // Áudio de voz (PTT) chega num formato ACHATADO, diferente do envelope
-  // Baileys acima: `content` já É o descritor de mídia direto (`PTT`,
-  // `mimetype`, `mediaKey`...), sem `.message.audioMessage` aninhado.
-  // Confirmado com payload real de produção (fixtures/reais/webhook-audio-ptt.json)
-  // — sem isto, todo áudio de voz caía silenciosamente em tipo "outro" e a
-  // Mika nunca via o conteúdo. Só cobre PTT (o único caso confirmado); outros
-  // tipos de mídia podem usar o mesmo formato achatado, mas isso não foi
-  // confirmado com payload real ainda — não deduzir, esperar o caso aparecer.
-  if (item?.mediaType === "ptt" || conteudoBruto?.PTT === true) {
-    return {
-      ...base,
-      tipo: "audio",
-      conteudo: null,
-      mediaMime: typeof conteudoBruto?.mimetype === "string" ? conteudoBruto.mimetype : null,
-      mediaFilename: null,
-    };
   }
 
   return { ...base, tipo: "outro", conteudo: null, mediaMime: null, mediaFilename: null };
