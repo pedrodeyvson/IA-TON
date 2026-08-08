@@ -115,24 +115,40 @@ export function instrucaoDoToque(toque: number): string {
   ].join("\n");
 }
 
-/** O que o lead escreveu, resolvendo áudio e mídia para texto. */
+const MARCADOR_MIDIA: Record<string, string> = {
+  imagem: "imagem",
+  documento: "documento",
+  video: "vídeo",
+  sticker: "figurinha",
+};
+
+/**
+ * O que o lead escreveu, resolvendo áudio e mídia para texto.
+ *
+ * Mídia visual (imagem/documento/vídeo/sticker) SEMPRE leva o marcador
+ * "[o cliente enviou uma imagem...]", com ou sem legenda — não é vision, o
+ * modelo nunca viu o conteúdo. Sem isso, uma imagem com legenda ("essa
+ * aqui?") virava texto puro e o modelo respondia como se tivesse visto a
+ * foto, sem nunca ter tido acesso a ela (achado real em produção).
+ */
 function textoDaMensagem(m: MensagemHistorico): string | null {
+  const rotuloMidia = MARCADOR_MIDIA[m.tipo ?? ""];
   const conteudo = m.conteudo?.trim();
+
+  if (rotuloMidia) {
+    return conteudo
+      ? `[o cliente enviou uma ${rotuloMidia}, com esta legenda: "${conteudo}"]`
+      : `[o cliente enviou uma ${rotuloMidia}]`;
+  }
+
   if (conteudo) return conteudo;
 
   const transcricao = m.transcricao?.trim();
   if (transcricao) return transcricao;
 
-  // Sem texto e sem transcrição, um marcador é melhor que sumir com a mensagem:
-  // o modelo precisa saber que ALGO chegou.
-  switch (m.tipo) {
-    case "audio": return "[o cliente enviou um áudio que não foi possível transcrever]";
-    case "imagem": return "[o cliente enviou uma imagem]";
-    case "documento": return "[o cliente enviou um documento]";
-    case "video": return "[o cliente enviou um vídeo]";
-    case "sticker": return "[o cliente enviou uma figurinha]";
-    default: return null;
-  }
+  // Áudio sem transcrição: um marcador é melhor que sumir com a mensagem.
+  if (m.tipo === "audio") return "[o cliente enviou um áudio que não foi possível transcrever]";
+  return null;
 }
 
 export function montarMensagens(

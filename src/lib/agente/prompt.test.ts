@@ -144,6 +144,16 @@ test("imagem vira marcador de texto nesta fatia", () => {
   assert.match(msgs[1].content ?? "", /imagem/i);
 });
 
+test("imagem COM legenda mantém o marcador — a legenda não pode virar texto puro", () => {
+  // Achado real em produção: sem isso, o modelo respondia como se tivesse
+  // visto a foto, tendo só a legenda.
+  const msgs = montarMensagens("SYS", [
+    { remetente: "lead", tipo: "imagem", conteudo: "essa aqui?" },
+  ]);
+  assert.match(msgs[1].content ?? "", /imagem/i);
+  assert.match(msgs[1].content ?? "", /essa aqui\?/);
+});
+
 test("mensagem sem conteúdo aproveitável é descartada", () => {
   const msgs = montarMensagens("SYS", [
     { remetente: "lead", tipo: "texto", conteudo: "  " },
