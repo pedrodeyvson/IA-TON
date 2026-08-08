@@ -6,7 +6,7 @@ import { createMiddleware } from "@tanstack/react-start";
  * A fronteira de segurança do app inteiro.
  *
  * As server functions usam o client de service role, que ignora o RLS. Uma
- * função sem este middleware é um endpoint público de escrita no banco — há um
+ * função sem este middleware é um endpoint público no banco — há um
  * teste em crm.functions.test.ts que falha se alguma esquecer.
  */
 export const exigirSessao = createMiddleware({ type: "function" }).server(

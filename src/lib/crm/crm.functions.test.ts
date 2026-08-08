@@ -26,10 +26,10 @@ function semComentarios(fonte: string): string {
   return fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-const ARQUIVOS = acharFunctions(DIR_SRC).map((caminho) => ({
-  nome: caminho.split(/[\\/]/).pop()!,
-  fonte: semComentarios(readFileSync(caminho, "utf8")),
-}));
+const ARQUIVOS = acharFunctions(DIR_SRC).map((caminho) => {
+  const bruta = readFileSync(caminho, "utf8");
+  return { nome: caminho.split(/[\\/]/).pop()!, bruta, fonte: semComentarios(bruta) };
+});
 
 /** Aceita anotação de tipo e genérico: `export const X: T = createServerFn<U>(`. */
 function nomesDeServerFn(fonte: string): string[] {
@@ -56,8 +56,8 @@ test("a varredura acha os arquivos de server functions", () => {
 });
 
 test("nenhuma declaração de createServerFn escapa do reconhecimento", () => {
-  for (const { nome, fonte } of ARQUIVOS) {
-    const brutas = (fonte.match(/createServerFn\s*(?:<[^>]*>)?\s*\(/g) ?? []).length;
+  for (const { nome, bruta, fonte } of ARQUIVOS) {
+    const brutas = (bruta.match(/createServerFn\s*(?:<[^>]*>)?\s*\(/g) ?? []).length;
     assert.equal(
       nomesDeServerFn(fonte).length,
       brutas,
@@ -74,7 +74,11 @@ test("TODA server function exige sessão, exceto as três de auth", () => {
   for (const { fonte } of ARQUIVOS) {
     for (const nome of nomesDeServerFn(fonte)) {
       const corpo = corpoDaDeclaracao(fonte, nome);
-      if (!/\.middleware\(\[[^\]]*\bexigirSessao\b[^\]]*\]\)/.test(corpo)) semSessao.push(nome);
+      const temSessao = /\.middleware\(\[[^\]]*\bexigirSessao\b[^\]]*\]\)/.test(corpo);
+      if (!temSessao && !SEM_SESSAO_PERMITIDAS.includes(nome)) {
+        assert.fail(`${nome} não encadeia exigirSessao — endpoint público no banco (service role ignora o RLS)`);
+      }
+      if (!temSessao) semSessao.push(nome);
     }
   }
   assert.deepEqual(semSessao.sort(), [...SEM_SESSAO_PERMITIDAS].sort());
