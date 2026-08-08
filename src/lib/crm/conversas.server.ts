@@ -16,7 +16,7 @@ export const MAX_TENTATIVAS = 3;
 
 export type ResultadoAgendamento = {
   agendado: boolean;
-  motivo?: "nao_perturbe" | "erro_ao_verificar_optout";
+  motivo?: "nao_perturbe" | "bloqueio_suspeito" | "erro_ao_verificar_optout";
 };
 
 /**
@@ -26,22 +26,29 @@ export type ResultadoAgendamento = {
  * parar. Por isso a checagem mora aqui dentro, não só no lado de quem chama —
  * defesa em profundidade, não depende de disciplina externa.
  *
+ * `bloqueio_suspeito` (Fatia 6, Task 6) tem o MESMO efeito prático de
+ * `nao_perturbe` — tira a conversa da fila —, mas causa diferente: não foi o
+ * lead que pediu, foi a uazapi recusando a entrega 3 vezes seguidas
+ * (`registrarFalhaDeEnvio`). Ver a migration `20260809b_fatia6_bloqueio_suspeito.sql`
+ * para o porquê de não reusar `nao_perturbe` para essa causa.
+ *
  * Falha fechada: se a própria consulta falhar (rede, Postgres), a resposta é
  * "recusar", não "assumir que está tudo bem" — perder um follow-up legítimo
  * por um erro transitório é um custo aceitável; mandar mensagem para quem
- * pediu para parar não é.
+ * pediu para parar (ou para um número que parece bloqueado) não é.
  */
 async function motivoParaRecusarAgendamento(
   admin: any,
   conversaId: string,
-): Promise<"nao_perturbe" | "erro_ao_verificar_optout" | null> {
+): Promise<"nao_perturbe" | "bloqueio_suspeito" | "erro_ao_verificar_optout" | null> {
   const { data, error } = await admin
     .from("conversas")
-    .select("id, leads(nao_perturbe)")
+    .select("id, leads(nao_perturbe, bloqueio_suspeito)")
     .eq("id", conversaId)
     .maybeSingle();
   if (error) return "erro_ao_verificar_optout";
   if (data?.leads?.nao_perturbe === true) return "nao_perturbe";
+  if (data?.leads?.bloqueio_suspeito === true) return "bloqueio_suspeito";
   return null;
 }
 
@@ -224,6 +231,64 @@ export async function registrarFalha(
         : new Date(agoraMs + MS_POR_TENTATIVA * 2 ** tentativas).toISOString(),
     })
     .eq("id", conversaId);
+}
+
+/** 3 rejeições CONSECUTIVAS do destinatário e a Mika para de insistir. */
+export const MAX_FALHAS_DESTINATARIO = 3;
+
+/**
+ * Registra o resultado de um ENVIO quanto ao destinatário — contador
+ * separado de `registrarFalha`/`tentativas` (que mede falha TOTAL do turno,
+ * com backoff). Aqui só entra falha classificada como "o destinatário
+ * bloqueou/o número não existe" (`ehFalhaDoDestinatario`, em
+ * `src/lib/uazapi/erros.ts`); falha transitória (rede, rate limit, timeout)
+ * nunca chega aqui — quem chama (`enviarTextoDoCrm`) já filtrou isso, e
+ * continua sendo domínio exclusivo de `registrarFalha`.
+ *
+ * Não incrementa e não zera nada quando a falha é transitória — o contador
+ * fica parado esperando o próximo envio, exatamente como `falhas_destinatario`
+ * foi documentado na migration da Task 1: "consecutivas; qualquer envio
+ * bem-sucedido zera". Uma falha transitória no meio não é um envio
+ * bem-sucedido, então não zera; e não é do destinatário, então não incrementa.
+ *
+ * Na 3ª falha consecutiva: marca `leads.bloqueio_suspeito` (não
+ * `nao_perturbe` — ver a migration para o porquê) e tira a conversa da fila
+ * agora mesmo (`limparAgendamento`), em vez de esperar o próximo tick do
+ * worker tentar de novo e falhar uma 4ª vez.
+ */
+export async function registrarFalhaDeEnvio(
+  admin: any,
+  conversaId: string,
+  leadId: string,
+  falhaDoDestinatario: boolean,
+): Promise<void> {
+  if (!falhaDoDestinatario) return;
+
+  const { data } = await admin
+    .from("conversas")
+    .select("falhas_destinatario")
+    .eq("id", conversaId)
+    .maybeSingle();
+  const falhas = (data?.falhas_destinatario ?? 0) + 1;
+
+  await admin.from("conversas").update({ falhas_destinatario: falhas }).eq("id", conversaId);
+
+  if (falhas >= MAX_FALHAS_DESTINATARIO) {
+    await admin
+      .from("leads")
+      // precisa_atencao junto, mesmo padrão de registrarNaoPerturbe: um
+      // número que parece bloqueado é o Pedro quem decide o que fazer (checar
+      // por outro canal, etc.) — não pode ficar silencioso.
+      .update({ bloqueio_suspeito: true, precisa_atencao: true })
+      .eq("id", leadId);
+    await limparAgendamento(admin, conversaId);
+  }
+}
+
+/** Qualquer envio bem-sucedido reabre o crédito — mesmo espírito de
+ *  `agendarResposta` zerando `tentativas` numa mensagem nova. */
+export async function zerarFalhasDestinatario(admin: any, conversaId: string): Promise<void> {
+  await admin.from("conversas").update({ falhas_destinatario: 0 }).eq("id", conversaId);
 }
 
 export async function pausarIa(admin: any, conversaId: string): Promise<void> {

@@ -5,6 +5,7 @@ import {
   agendarResgate, agendarResposta, agendarToque, limparAgendamento, soltarLock, registrarFalha,
   registrarToqueEnviado, pausarCiclo, reiniciarCiclo, pausarIa, retomarIa,
   marcarLida, MS_POR_TENTATIVA,
+  registrarFalhaDeEnvio, zerarFalhasDestinatario, MAX_FALHAS_DESTINATARIO,
 } from "./conversas.server.ts";
 
 function payloadUpdate(admin: any) {
@@ -248,6 +249,76 @@ test("retomarIa desliga a flag e limpa assumida_em", async () => {
   const p = payloadUpdate(admin);
   assert.equal(p.pausada_pela_ia, false);
   assert.equal(p.assumida_em, null);
+});
+
+// ===================== Fatia 6, Task 6: falha do destinatário =====================
+
+/** Fake com estado: simula `falhas_destinatario` persistindo entre chamadas
+ *  (o admin-fake genérico não guarda estado — cada resposta configurada é
+ *  estática), para testar a sequência de 3 falhas consecutivas de verdade. */
+function criarAdminComContadorDeFalhas() {
+  const estado = { falhas: 0 };
+  const leadUpdates: any[] = [];
+  const conversaUpdatesDeLimpeza: any[] = [];
+  const admin = criarAdminFake({
+    "conversas.select": () => ({ data: { falhas_destinatario: estado.falhas }, error: null }),
+    "conversas.update": (c: any) => {
+      if (c.payload && "falhas_destinatario" in c.payload) estado.falhas = c.payload.falhas_destinatario;
+      if (c.payload && "responder_em" in c.payload) conversaUpdatesDeLimpeza.push(c.payload);
+      return { data: null, error: null };
+    },
+    "leads.update": (c: any) => { leadUpdates.push(c.payload); return { data: null, error: null }; },
+  });
+  return { admin, estado, leadUpdates, conversaUpdatesDeLimpeza };
+}
+
+test("3 falhas de destinatário seguidas incrementam até o teto e param o envio", async () => {
+  const { admin, estado, leadUpdates, conversaUpdatesDeLimpeza } = criarAdminComContadorDeFalhas();
+
+  await registrarFalhaDeEnvio(admin, "C1", "L1", true);
+  assert.equal(estado.falhas, 1);
+  assert.equal(leadUpdates.length, 0, "antes do teto, nada muda em leads");
+
+  await registrarFalhaDeEnvio(admin, "C1", "L1", true);
+  assert.equal(estado.falhas, 2);
+  assert.equal(leadUpdates.length, 0);
+
+  await registrarFalhaDeEnvio(admin, "C1", "L1", true);
+  assert.equal(estado.falhas, MAX_FALHAS_DESTINATARIO);
+  // Na 3ª: marca bloqueio_suspeito (não nao_perturbe — causa é diferente) e
+  // avisa o Pedro.
+  assert.equal(leadUpdates.length, 1);
+  assert.equal(leadUpdates[0].bloqueio_suspeito, true);
+  assert.equal(leadUpdates[0].precisa_atencao, true);
+  // E a conversa some da fila agora mesmo — mesmo mecanismo de limparAgendamento.
+  assert.equal(conversaUpdatesDeLimpeza.length, 1);
+  assert.equal(conversaUpdatesDeLimpeza[0].responder_em, null);
+});
+
+test("depois do bloqueio_suspeito, motivoParaRecusarAgendamento (via agendarResposta) recusa agendar", async () => {
+  // Prova que a conversa realmente some da fila de reprocessamento: o mesmo
+  // portão que nao_perturbe usa também passa a recusar por bloqueio_suspeito.
+  const admin = criarAdminFake({
+    "conversas.select": { data: { id: "C1", leads: { nao_perturbe: false, bloqueio_suspeito: true } }, error: null },
+  });
+  const resultado = await agendarResposta(admin, "C1", 8000);
+  assert.deepEqual(resultado, { agendado: false, motivo: "bloqueio_suspeito" });
+});
+
+test("1 falha de destinatário + 1 envio bem-sucedido NÃO acumula — zera", async () => {
+  const { admin, estado } = criarAdminComContadorDeFalhas();
+
+  await registrarFalhaDeEnvio(admin, "C1", "L1", true);
+  assert.equal(estado.falhas, 1);
+
+  await zerarFalhasDestinatario(admin, "C1");
+  assert.equal(estado.falhas, 0);
+});
+
+test("falha transitória nunca conta para falhas_destinatario — nem toca no banco", async () => {
+  const admin = criarAdminFake();
+  await registrarFalhaDeEnvio(admin, "C1", "L1", false);
+  assert.equal(admin.chamadas.length, 0, "falha transitória é domínio exclusivo de registrarFalha/tentativas");
 });
 
 test("marcarLida zera o contador de não lidas do lead", async () => {
