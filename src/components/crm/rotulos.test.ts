@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rotuloDeEstagio, resumoDaLinha } from "./rotulos.ts";
+import { conversaEmbutida, rotuloDeEstagio, resumoDaLinha } from "./rotulos.ts";
 
 test("cada estágio tem rótulo legível em português", () => {
   assert.equal(rotuloDeEstagio("apresentando_solucao"), "Apresentando solução");
@@ -27,8 +27,32 @@ test("lead sem nome e sem telefone ainda tem título", () => {
   assert.equal(titulo, "Sem identificação");
 });
 
-test("conversa pausada pela IA é a que o Pedro assumiu", () => {
+// A forma que a API DE VERDADE devolve. Conferido contra o PostgREST do
+// projeto em 08/08/2026: como conversas.lead_id é UNIQUE, o embed vem como
+// OBJETO. O teste antigo só usava array, forma que a API nunca mandou — por
+// isso ficou verde enquanto todo link do inbox saía desabilitado.
+test("embed to-one do PostgREST (objeto) é a forma real e precisa ser lida", () => {
+  assert.deepEqual(
+    conversaEmbutida({ conversas: { id: "C1", pausada_pela_ia: true } }),
+    { id: "C1", pausada_pela_ia: true },
+  );
+  assert.equal(resumoDaLinha({ conversas: { pausada_pela_ia: true } }).assumida, true);
+  assert.equal(resumoDaLinha({ conversas: { pausada_pela_ia: false } }).assumida, false);
+});
+
+// Se alguém remover o índice único de conversas.lead_id, o PostgREST volta a
+// mandar array. As duas formas têm que funcionar.
+test("embed to-many (array) continua funcionando", () => {
+  assert.deepEqual(conversaEmbutida({ conversas: [{ id: "C1" }] }), { id: "C1" });
   assert.equal(resumoDaLinha({ conversas: [{ pausada_pela_ia: true }] }).assumida, true);
   assert.equal(resumoDaLinha({ conversas: [{ pausada_pela_ia: false }] }).assumida, false);
+});
+
+test("lead sem conversa nenhuma não vira 'assumida' nem estoura", () => {
+  assert.equal(conversaEmbutida({ conversas: [] }), null);
+  assert.equal(conversaEmbutida({ conversas: null }), null);
+  assert.equal(conversaEmbutida({}), null);
+  assert.equal(conversaEmbutida(null), null);
   assert.equal(resumoDaLinha({ conversas: [] }).assumida, false);
+  assert.equal(resumoDaLinha({ conversas: null }).assumida, false);
 });

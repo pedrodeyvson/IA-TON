@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { resumoDaLinha, rotuloDeEstagio } from "./rotulos";
+import { conversaEmbutida, resumoDaLinha, rotuloDeEstagio } from "./rotulos";
 import { useConversas } from "./useConversas";
 
 type Filtro = "todas" | "atencao" | "assumidas";
@@ -48,7 +48,10 @@ export function ListaConversas() {
         )}
         {visiveis.map((lead: any) => {
           const { titulo, assumida } = resumoDaLinha(lead);
-          const conversa = lead.conversas?.[0];
+          // `conversaEmbutida` e não `lead.conversas?.[0]`: o PostgREST manda
+          // objeto quando a relação é to-one, e o índice [0] devolvia sempre
+          // undefined — todo link do inbox saía desabilitado.
+          const conversa = conversaEmbutida(lead);
           // Boolean() antes da comparação: em /inbox, sem conversa aberta,
           // conversaId é undefined — e um lead que ainda não tem linha de
           // conversa também tem id undefined. Sem a guarda, undefined ===
