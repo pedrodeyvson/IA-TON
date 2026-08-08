@@ -1897,7 +1897,7 @@ export function resumoDaLinha(conversa: any): { titulo: string; assumida: boolea
 - [ ] **Step 4: Rodar e ver passar**
 
 Run: `node --test --experimental-strip-types src/components/crm/rotulos.test.ts`
-Expected: PASS, 9 testes
+Expected: PASS, 5 testes
 
 - [ ] **Step 5: Criar o hook compartilhado da listagem**
 
