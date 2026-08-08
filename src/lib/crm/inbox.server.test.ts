@@ -15,21 +15,35 @@ function adminFalso(
     erroNoLead?: string;
     mensagem?: { status?: string; conteudo?: string | null; conversaId?: string; leadId?: string };
     erroNaMensagem?: string;
+    /**
+     * Simula concorrência no CAS de `reenviarFalhada`: a partir da tentativa
+     * seguinte à N-ésima, o UPDATE filtrado por `status = "falhou"` devolve
+     * lista vazia, como se outra chamada já tivesse levado a linha.
+     */
+    casFalhaApos?: number;
   } = {},
 ) {
   const ordem: string[] = [];
   const telefone = opcoes.telefone === undefined ? "5511999999999" : opcoes.telefone;
   const leadExiste = opcoes.leadExiste !== false;
+  let tentativasCas = 0;
 
   const admin: any = {
     ordem,
     from(tabela: string) {
-      return {
+      // Escopo por chamada a `.from(...)`: cada statement do código real
+      // cria a sua própria consulta, então os filtros de uma não vazam para
+      // a próxima.
+      let filtroStatus: string | undefined;
+      let camposUpdate: Record<string, unknown> | null = null;
+
+      const consulta: any = {
         select() {
-          return this;
+          return consulta;
         },
-        eq() {
-          return this;
+        eq(coluna: string, valor: unknown) {
+          if (coluna === "status") filtroStatus = valor as string;
+          return consulta;
         },
         maybeSingle: async () => {
           ordem.push(`select:${tabela}`);
@@ -58,20 +72,51 @@ function adminFalso(
           return { data: { id: "msg-1" }, error: null };
         },
         insert() {
-          return this;
+          return consulta;
         },
         update(campos: Record<string, unknown>) {
-          // Mensagens registram o status entre parênteses para a ordem de
-          // pendente -> envio -> enviada/falhou ficar verificável nos testes
-          // de reenviarFalhada.
+          camposUpdate = campos;
+          // Mensagens registram o status entre parênteses — e o
+          // provider_message_id junto dele, quando houver — para a ordem
+          // pendente -> envio -> enviada/falhou e o carimbo do provedor
+          // ficarem verificáveis nos testes de reenviarFalhada.
           if (tabela === "mensagens" && typeof campos.status === "string") {
-            ordem.push(`update:mensagens:status(${campos.status})`);
+            const carimbo =
+              typeof campos.provider_message_id === "string"
+                ? ` provider_message_id=${campos.provider_message_id}`
+                : "";
+            ordem.push(`update:mensagens:status(${campos.status})${carimbo}`);
           } else {
             ordem.push(`update:${tabela}:${Object.keys(campos).join(",")}`);
           }
-          return this;
+          return consulta;
+        },
+        // Torna a consulta "awaitable" diretamente — com ou sem `.select("id")`
+        // no fim. reenviarFalhada faz `await admin.from(...).update(...).eq(...)`
+        // e também, no CAS, `...eq(...).select("id")`; as duas formas precisam
+        // resolver para `{ data, error }`.
+        then(resolver: (valor: { data: unknown; error: unknown }) => void, rejeitar: (erro: unknown) => void) {
+          Promise.resolve()
+            .then(() => {
+              if (!camposUpdate) {
+                resolver({ data: null, error: null });
+                return;
+              }
+              // O CAS é a única escrita que sai de "falhou" filtrando por ele:
+              // `.update({ status: "pendente" }).eq("id", ...).eq("status", "falhou")`.
+              if (tabela === "mensagens" && camposUpdate.status === "pendente" && filtroStatus === "falhou") {
+                tentativasCas += 1;
+                const perdeuACorrida =
+                  opcoes.casFalhaApos !== undefined && tentativasCas > opcoes.casFalhaApos;
+                resolver({ data: perdeuACorrida ? [] : [{ id: "msg-1" }], error: null });
+                return;
+              }
+              resolver({ data: null, error: null });
+            })
+            .catch(rejeitar);
         },
       };
+      return consulta;
     },
   };
   return admin;
@@ -312,5 +357,50 @@ test("falha no reenvio devolve a mensagem para falhou", async () => {
   assert.ok(
     admin.ordem.some((p: string) => p.startsWith("update:mensagens:status(falhou)")),
     "não devolveu para falhou",
+  );
+});
+
+test("segunda chamada concorrente não reenvia — o CAS recusa", async () => {
+  // O update é que barra, não a leitura: as duas chamadas leem "falhou".
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" }, casFalhaApos: 1 });
+  const primeira = await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "p1" }) });
+  const segunda = await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "p2" }) });
+
+  assert.equal(primeira.ok, true);
+  assert.equal(segunda.ok, false);
+  assert.match(segunda.erro ?? "", /andamento/i);
+});
+
+test("falha ao preparar o envio não deixa a linha em pendente", async () => {
+  // Sem `deps.enviar`, reenviarFalhada cai no resolverEnvioUazapi() de
+  // verdade, que lança quando UAZAPI_TOKEN não está configurado — é
+  // exatamente o caminho que o try/catch ANTES do CAS protege. Um
+  // `deps.enviar` que só lança quando CHAMADO não serve para este teste: a
+  // resolução do remetente apenas referencia `deps.enviar`, nunca o invoca,
+  // então esse throw só apareceria depois do CAS já ter marcado `pendente` —
+  // e o teste estaria provando a coisa errada.
+  const tokenOriginal = process.env.UAZAPI_TOKEN;
+  delete process.env.UAZAPI_TOKEN;
+  try {
+    const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+    const resultado = await reenviarFalhada(admin, "msg-1", {});
+    assert.equal(resultado.ok, false);
+    assert.equal(
+      admin.ordem.some((p: string) => p.includes("status(pendente)")),
+      false,
+      "mexeu no status antes de saber que conseguiria enviar",
+    );
+  } finally {
+    if (tokenOriginal === undefined) delete process.env.UAZAPI_TOKEN;
+    else process.env.UAZAPI_TOKEN = tokenOriginal;
+  }
+});
+
+test("carimba o provider_message_id do reenvio", async () => {
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "prov-9" }) });
+  assert.ok(
+    admin.ordem.some((p: string) => p.includes("provider_message_id=prov-9")),
+    "não gravou o id do provedor",
   );
 });
