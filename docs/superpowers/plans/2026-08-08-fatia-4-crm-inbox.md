@@ -1819,30 +1819,155 @@ export const excluirTarefaDoCrm = createServerFn({ method: "POST" })
   });
 
 /**
- * Reenvia uma mensagem que ficou em `falhou`. Relê texto, conversa e lead do
- * banco a partir do ID — o cliente manda só qual mensagem, nunca o conteúdo.
+ * Reenvia uma mensagem que ficou em `falhou`. O cliente manda só qual
+ * mensagem; todo o resto sai do banco.
  */
 export const reenviarMensagem = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
   .validator((dados: unknown) => porMensagem.parse(dados))
   .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: mensagem } = await supabaseAdmin
-      .from("mensagens")
-      .select("id, conversa_id, lead_id, conteudo, status")
-      .eq("id", data.mensagemId)
-      .maybeSingle();
-
-    if (!mensagem) return { ok: false, erro: "mensagem não encontrada" };
-    if (mensagem.status !== "falhou") return { ok: false, erro: "mensagem não está falhada" };
-
-    const { responderComoHumano } = await import("./inbox.server.ts");
-    return responderComoHumano(supabaseAdmin, {
-      conversaId: mensagem.conversa_id,
-      leadId: mensagem.lead_id,
-      texto: mensagem.conteudo ?? "",
-    });
+    const { reenviarFalhada } = await import("./inbox.server.ts");
+    return reenviarFalhada(supabaseAdmin, data.mensagemId);
   });
+```
+
+⚠️ **Por que não chamar `responderComoHumano` aqui.** A primeira versão deste plano fazia isso, e estava errada: `responderComoHumano` **insere uma mensagem nova**, deixando a original em `falhou` para sempre. Como a guarda `status !== "falhou"` relê a linha original, ela continua liberando o reenvio depois de um sucesso — então cada clique em "tentar de novo" manda mais um WhatsApp para o lead, e o botão nunca some da tela. Um duplo clique já entrega a mesma mensagem duas vezes.
+
+O reenvio tem que reaproveitar a própria linha. Isso mora em `inbox.server.ts`, que é módulo desta fatia (criado na Task 6), então pode crescer — ao contrário dos módulos da Fatia 2.
+
+- [ ] **Step 1b: `reenviarFalhada` em `inbox.server.ts`**
+
+Escreva o teste primeiro, em `src/lib/crm/inbox.server.test.ts`:
+
+```ts
+test("reenvio marca pendente antes de enviar e enviada depois", async () => {
+  // Passar por "pendente" é o que impede o duplo clique: a guarda de status
+  // recusa qualquer segunda tentativa enquanto a primeira está em curso.
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  const resultado = await reenviarFalhada(admin, "msg-1", {
+    enviar: async () => ({ messageid: "prov-9" }),
+  });
+
+  assert.equal(resultado.ok, true);
+  const pendente = admin.ordem.findIndex((p: string) => p === "update:mensagens:status(pendente)");
+  const envio = admin.ordem.indexOf("envio");
+  const enviada = admin.ordem.findIndex((p: string) => p.startsWith("update:mensagens:status(enviada)"));
+  assert.ok(pendente !== -1 && pendente < envio, "não marcou pendente antes de enviar");
+  assert.ok(enviada > envio, "não marcou enviada depois do envio");
+});
+
+test("reenvio não insere mensagem nova", async () => {
+  // O bug que motivou esta função: inserir outra linha deixava a original em
+  // falhou, o botão de reenviar nunca sumia e cada clique era um WhatsApp.
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  await reenviarFalhada(admin, "msg-1", { enviar: async () => ({ messageid: "prov-9" }) });
+  assert.equal(
+    admin.ordem.some((p: string) => p.startsWith("insert:mensagens")),
+    false,
+  );
+});
+
+test("mensagem que não está falhada é recusada", async () => {
+  const admin = adminFalso({ mensagem: { status: "enviada", conteudo: "oi" } });
+  let chamou = false;
+  const resultado = await reenviarFalhada(admin, "msg-1", {
+    enviar: async () => {
+      chamou = true;
+      return {};
+    },
+  });
+  assert.equal(resultado.ok, false);
+  assert.equal(chamou, false);
+});
+
+test("erro de banco ao ler a mensagem não vira 'não encontrada'", async () => {
+  const admin = adminFalso({ erroNaMensagem: "connection reset" });
+  const resultado = await reenviarFalhada(admin, "msg-1", { enviar: async () => ({}) });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.erro ?? "", /connection reset/i);
+});
+
+test("falha no reenvio devolve a mensagem para falhou", async () => {
+  // Senão a linha fica presa em "pendente" e o operador perde o botão.
+  const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
+  const resultado = await reenviarFalhada(admin, "msg-1", {
+    enviar: async () => {
+      throw new Error("uazapi fora do ar");
+    },
+  });
+  assert.equal(resultado.ok, false);
+  assert.ok(
+    admin.ordem.some((p: string) => p.startsWith("update:mensagens:status(falhou)")),
+    "não devolveu para falhou",
+  );
+});
+```
+
+Estenda `adminFalso` com as opções `mensagem` e `erroNaMensagem`, e faça o registro de `update` em `mensagens` incluir o status entre parênteses (`update:mensagens:status(pendente)`), para que a ordem seja verificável. Depois implemente:
+
+```ts
+/**
+ * Reenvia uma mensagem que ficou em `falhou`, reaproveitando a MESMA linha.
+ *
+ * Inserir uma linha nova deixaria a original em `falhou` para sempre: o botão
+ * de reenviar não sumiria da tela e cada clique viraria outro WhatsApp para o
+ * lead. Passar por `pendente` também é o que torna o duplo clique inofensivo —
+ * a segunda chamada encontra a mensagem fora de `falhou` e recusa.
+ */
+export async function reenviarFalhada(
+  admin: any,
+  mensagemId: string,
+  deps: DepsResposta = {},
+): Promise<{ ok: boolean; erro?: string }> {
+  const { data: mensagem, error: erroLeitura } = await admin
+    .from("mensagens")
+    .select("id, conversa_id, lead_id, conteudo, status")
+    .eq("id", mensagemId)
+    .maybeSingle();
+
+  if (erroLeitura) return { ok: false, erro: erroLeitura.message };
+  if (!mensagem) return { ok: false, erro: "mensagem não encontrada" };
+  if (mensagem.status !== "falhou") return { ok: false, erro: "mensagem não está falhada" };
+
+  const texto = mensagem.conteudo?.trim();
+  if (!texto) return { ok: false, erro: "mensagem sem texto para reenviar" };
+
+  const { data: lead, error: erroLead } = await admin
+    .from("leads")
+    .select("id, telefone")
+    .eq("id", mensagem.lead_id)
+    .maybeSingle();
+
+  if (erroLead) return { ok: false, erro: erroLead.message };
+  if (!lead?.telefone) return { ok: false, erro: "lead sem telefone real" };
+
+  await admin.from("mensagens").update({ status: "pendente" }).eq("id", mensagemId);
+
+  const enviar = deps.enviar ?? (await enviarPelaUazapi());
+  let resposta: any;
+  try {
+    resposta = await enviar(lead.telefone, texto);
+  } catch (err: any) {
+    await admin.from("mensagens").update({ status: "falhou" }).eq("id", mensagemId);
+    return { ok: false, erro: err?.message ?? "erro desconhecido ao reenviar" };
+  }
+
+  await admin
+    .from("mensagens")
+    .update({ status: "enviada", provider_message_id: resposta?.messageid ?? resposta?.id ?? null })
+    .eq("id", mensagemId);
+
+  return { ok: true };
+}
+
+/** Resolve o envio real só quando não há dublê — mantém a UAZAPI fora do teste. */
+async function enviarPelaUazapi(): Promise<(numero: string, texto: string) => Promise<any>> {
+  const token = process.env.UAZAPI_TOKEN;
+  if (!token) throw new Error("UAZAPI_TOKEN não configurado");
+  const { enviarTexto } = await import("../uazapi/client.server.ts");
+  return (numero, texto) => enviarTexto(token, numero, texto);
+}
 ```
 
 Move o `import { ESTAGIOS }` para junto dos outros imports no topo do arquivo — `estagios.ts` é puro (sem env, sem banco), então pode ir ao bundle do cliente sem problema.
