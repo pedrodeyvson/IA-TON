@@ -2338,7 +2338,8 @@ Run: `bun run dev`
 
 ```bash
 git add src/components/crm/ListaConversas.tsx src/components/crm/useConversas.ts \
-  src/components/crm/rotulos.ts src/components/crm/rotulos.test.ts src/routes/_app/inbox.tsx
+  src/components/crm/rotulos.ts src/components/crm/rotulos.test.ts \
+  src/routes/_app/inbox.tsx src/routes/_app/inbox.\$conversaId.tsx src/routeTree.gen.ts
 git commit -m "feat(inbox): lista de conversas com filtros e polling"
 ```
 
@@ -2584,9 +2585,11 @@ export function CaixaDeResposta({
 }
 ```
 
-- [ ] **Step 4: Criar a rota da conversa**
+- [ ] **Step 4: Preencher a rota da conversa**
 
-Cria `src/routes/_app/inbox.$conversaId.tsx`:
+A Task 9 deixou este arquivo como esqueleto (`component: () => null`) para que o `Link` da lista compilasse. Substitua o conteúdo inteiro, mantendo o mesmo `validateSearch`.
+
+`src/routes/_app/inbox.$conversaId.tsx`:
 
 ```tsx
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
