@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { entrar } from "@/lib/auth/auth.functions";
+import { destinoSeguro } from "@/lib/auth/destino";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (busca: Record<string, unknown>) => ({
-    destino: typeof busca.destino === "string" ? busca.destino : "/inbox",
+    destino: destinoSeguro(busca.destino),
   }),
   component: TelaLogin,
 });
