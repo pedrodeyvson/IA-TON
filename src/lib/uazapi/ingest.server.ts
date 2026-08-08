@@ -302,6 +302,46 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     return { status: "error", error: error.message };
   }
 
+  // Acorda o agente. Best-effort: uma falha aqui não pode custar a mensagem
+  // que já foi gravada — no pior caso o lead fica sem resposta automática e
+  // aparece como não lido para o Pedro.
+  try {
+    const { deveAgendarResposta } = await import("./deve-agendar.ts");
+    const { agendarResposta } = await import("../crm/conversas.server.ts");
+
+    const { data: estado } = await admin
+      .from("conversas")
+      .select("pausada_pela_ia, leads(precisa_atencao)")
+      .eq("id", alvo.conversaId)
+      .maybeSingle();
+
+    // `leads` pode vir como objeto ou como array dependendo de como o
+    // Postgrest resolve a FK conversas.lead_id -> leads.id — trata os dois
+    // formatos em vez de assumir um só (ver Passo 6 do relatório da Task 7).
+    const leadRelacionado = Array.isArray((estado as any)?.leads)
+      ? (estado as any)?.leads?.[0]
+      : (estado as any)?.leads;
+
+    const contexto = {
+      direcao: msg.direcao as "in" | "out",
+      pausada: Boolean(estado?.pausada_pela_ia),
+      precisaAtencao: Boolean(leadRelacionado?.precisa_atencao),
+      agenteAtivo: process.env.AGENTE_ATIVO !== "false",
+    };
+
+    if (deveAgendarResposta(contexto)) {
+      const atraso = Number(process.env.AGENTE_DEBOUNCE_MS) || 8000;
+      const resultado = await agendarResposta(admin, alvo.conversaId, atraso);
+      if (!resultado.agendado) {
+        console.warn(
+          `[ingest] agendamento recusado para a conversa ${alvo.conversaId}: ${resultado.motivo}`,
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[ingest] falha ao agendar resposta da conversa ${alvo.conversaId}:`, err?.message ?? err);
+  }
+
   return { status: "ok", leadId: alvo.leadId };
 }
 
