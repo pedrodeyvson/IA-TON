@@ -50,6 +50,12 @@ test("D150 não constava em nenhum manual, mas a página ao vivo revelou T1", ()
   assert.doesNotMatch(PRODUTOS.TONMEGA_TIER_D150.nome ?? "", /T2|T3/);
 });
 
+test("cada produto tem comissão real maior que zero (confirmada pelo dono, não estimada)", () => {
+  for (const id of Object.keys(PRODUTOS) as (keyof typeof PRODUTOS)[]) {
+    assert.ok(PRODUTOS[id].comissaoBRL > 0, `${id} sem comissaoBRL maior que zero`);
+  }
+});
+
 test("checkout leva productId, referrer e userTag no formato do adendo", () => {
   const r = comReferrer(() => montarLink("TONMEGA_TIER_S920"));
   assert.equal(r.ok, true);

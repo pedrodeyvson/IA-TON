@@ -31,6 +31,7 @@ export async function obterLead(admin: any, leadId: string): Promise<any | null>
 export type CamposEditaveis = {
   nome?: string | null;
   maquina_interesse?: string | null;
+  comissao_estimada?: number | null;
 };
 
 export async function atualizarLead(

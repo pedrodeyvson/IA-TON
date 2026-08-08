@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { criarAdminFake } from "../crm/admin-fake.ts";
 import { DEFINICOES_TOOLS, executarTool } from "./tools.ts";
+import { PRODUTOS } from "./links.ts";
 
 const CTX = { leadId: "L1", conversaId: "C1" };
 const REF = "CEA4255F-0783-4EAD-AA55-48C682BA8FA7";
@@ -103,6 +104,34 @@ test("registrar_link_enviado move o estágio e abre o ciclo no toque de 24h", as
   assert.ok(agendou, "tem que agendar o primeiro toque");
   const quando = new Date(agendou!.payload.responder_em).getTime();
   assert.ok(quando >= antes + 86_400_000 - 5_000, "o toque 1 é 24h depois do link");
+});
+
+test("registrar_link_enviado grava a comissão real do produto escolhido", async () => {
+  process.env.TON_REFERRER = REF;
+  const admin = adminComLead();
+  await executarTool(admin, "registrar_link_enviado", { produto: "TONMEGA_TIER_D195" }, CTX);
+
+  const atualizacoesLeads = admin.chamadas.filter(
+    (c: any) => c.tabela === "leads" && c.operacao === "update",
+  );
+  const comissao = atualizacoesLeads.find((u: any) => u.payload.comissao_estimada !== undefined);
+  assert.ok(comissao, "tem que gravar comissao_estimada");
+  assert.equal(comissao?.payload.comissao_estimada, PRODUTOS.TONMEGA_TIER_D195.comissaoBRL);
+});
+
+test("registrar_link_enviado com catalogo não grava comissão (cliente ainda não decidiu a máquina)", async () => {
+  process.env.TON_REFERRER = REF;
+  const admin = adminComLead();
+  await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+
+  const atualizacoesLeads = admin.chamadas.filter(
+    (c: any) => c.tabela === "leads" && c.operacao === "update",
+  );
+  assert.equal(
+    atualizacoesLeads.some((u: any) => u.payload.comissao_estimada !== undefined),
+    false,
+    "catálogo não tem produto decidido, não pode gravar comissão",
+  );
 });
 
 test("produto inventado devolve erro ao modelo e não mexe no lead", async () => {

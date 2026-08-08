@@ -23,6 +23,9 @@ export const PRODUTOS = {
     fonte:
       "produtos-e-taxas.md §1.1 e §6 (elegibilidade do Ton Black); " +
       "confirmado como 'T3 Smart Ton Black' no carrinho ao vivo — links-verificados.md §1",
+    // Comissão: confirmado pelo dono em 2026-08-08, olhando o app de parceiro
+    // Ton — não consta em nenhum PDF.
+    comissaoBRL: 245,
   },
   TONMEGA_TIER_SMART_POS: {
     userTag: "tonmega_tier",
@@ -30,6 +33,9 @@ export const PRODUTOS = {
     fonte:
       "produtos-e-taxas.md §1.1; confirmado como 'T3 Smart' no catálogo e " +
       "'T3 Smart Ton Mega+' no carrinho ao vivo — links-verificados.md §2",
+    // Comissão: confirmado pelo dono em 2026-08-08, olhando o app de parceiro
+    // Ton — não consta em nenhum PDF.
+    comissaoBRL: 245,
   },
   // Seção 1.2 — o S920 está listado no nível T3, não no T3 Smart.
   TONMEGA_TIER_S920: {
@@ -38,6 +44,9 @@ export const PRODUTOS = {
     fonte:
       "produtos-e-taxas.md §1.2; confirmado como 'T3' no catálogo e " +
       "'T3 Ton Mega+' no carrinho ao vivo — links-verificados.md §3",
+    // Comissão: confirmado pelo dono em 2026-08-08, olhando o app de parceiro
+    // Ton — não consta em nenhum PDF.
+    comissaoBRL: 205,
   },
   // Seção 1.3 — o D195 está listado no nível T2.
   TONMEGA_TIER_D195: {
@@ -46,6 +55,9 @@ export const PRODUTOS = {
     fonte:
       "produtos-e-taxas.md §1.3; confirmado como 'T2' no catálogo e " +
       "'T2 Ton Mega+' no carrinho ao vivo — links-verificados.md §4",
+    // Comissão: confirmado pelo dono em 2026-08-08, olhando o app de parceiro
+    // Ton — não consta em nenhum PDF.
+    comissaoBRL: 75,
   },
   // D150 NÃO aparece em nenhum dos 10 documentos lidos. Mas visitando a
   // página de verdade (2026-08-08): o botão "Pedir T1" do catálogo aponta
@@ -58,6 +70,9 @@ export const PRODUTOS = {
     fonte:
       "NÃO CONSTA em nenhum dos 10 PDFs — nome encontrado visitando a página " +
       "de checkout ao vivo (carrinho rotula 'T1 Ton Mega+') — links-verificados.md §5",
+    // Comissão: confirmado pelo dono em 2026-08-08, olhando o app de parceiro
+    // Ton — não consta em nenhum PDF.
+    comissaoBRL: 55,
   },
 } as const;
 

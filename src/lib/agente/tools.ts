@@ -243,6 +243,14 @@ async function executarRegistrarLink(
 
   await moverEstagio(admin, ctx.leadId, "link_enviado", { origem: "agente", produto });
 
+  // Produto já decidido: grava a comissão real desse modelo, para o evento
+  // Purchase da Meta CAPI usar o valor certo quando o lead converter, em vez
+  // do fallback genérico (COMISSAO_PADRAO_BRL). "catalogo" fica de fora: o
+  // cliente ainda não escolheu máquina, não há comissão para gravar.
+  if (produto !== "catalogo") {
+    await atualizarLead(admin, ctx.leadId, { comissao_estimada: PRODUTOS[produto].comissaoBRL });
+  }
+
   // Link novo abre ciclo novo: zera o contador de toques e qualquer pausa
   // herdada de um ciclo anterior.
   await reiniciarCiclo(admin, ctx.conversaId);
