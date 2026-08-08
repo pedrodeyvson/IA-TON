@@ -303,6 +303,8 @@ git commit -m "feat(auth): middlewares exigirSessao e registrarErros"
 
 **Files:**
 - Create: `src/lib/auth/auth.functions.ts`
+- Create: `src/lib/auth/destino.ts`
+- Create: `src/lib/auth/destino.test.ts`
 - Create: `src/routes/login.tsx`
 - Modify: `src/routeTree.gen.ts` (gerado automaticamente)
 
@@ -311,6 +313,7 @@ git commit -m "feat(auth): middlewares exigirSessao e registrarErros"
 - Produces:
   - `entrar({ data: { email: string; senha: string } }): Promise<{ ok: boolean; erro?: string }>`
   - `sair(): Promise<{ ok: true }>`
+  - `destinoSeguro(bruto: unknown): string` em `destino.ts` — **a Task 4 também precisa dele**, porque o `beforeLoad` do `_app` monta o `?destino=` que esta tela consome.
 
 - [ ] **Step 1: Escrever as server functions**
 
@@ -355,7 +358,63 @@ export const sair = createServerFn({ method: "POST" })
   });
 ```
 
-- [ ] **Step 2: Escrever a tela de login**
+- [ ] **Step 2a: Validar o destino pós-login (TDD)**
+
+`?destino=` vem da URL, ou seja, de quem mandar o link. Sem checagem, `//evil.com` é resolvido pelo navegador contra a origem atual e vira `https://evil.com` — a vítima faz login de verdade e é levada para fora, parecendo que o app a mandou. Barrar `//` e `/\` é o que separa caminho interno de URL protocol-relative.
+
+Fica em módulo próprio, e não dentro de `login.tsx`, porque rota não é testável sob `node --test` (alias `@/` e JSX). Escreva o teste primeiro.
+
+Cria `src/lib/auth/destino.test.ts`:
+
+```ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { destinoSeguro } from "./destino.ts";
+
+test("caminho interno normal passa", () => {
+  assert.equal(destinoSeguro("/inbox"), "/inbox");
+  assert.equal(destinoSeguro("/inbox/abc?leadId=1"), "/inbox/abc?leadId=1");
+});
+
+test("URL protocol-relative é recusada — este é o ataque", () => {
+  // O navegador resolveria //evil.com contra a origem atual.
+  assert.equal(destinoSeguro("//evil.com"), "/inbox");
+});
+
+test("variante com barra invertida é recusada", () => {
+  assert.equal(destinoSeguro("/\\evil.com"), "/inbox");
+});
+
+test("URL absoluta é recusada", () => {
+  assert.equal(destinoSeguro("https://evil.com"), "/inbox");
+});
+
+test("caminho sem barra inicial é recusado", () => {
+  assert.equal(destinoSeguro("inbox"), "/inbox");
+});
+
+test("o que não é string vira o padrão", () => {
+  assert.equal(destinoSeguro(undefined), "/inbox");
+  assert.equal(destinoSeguro(123), "/inbox");
+});
+```
+
+Rode (`node --test --experimental-strip-types src/lib/auth/destino.test.ts`), veja falhar por módulo inexistente, e só então crie `src/lib/auth/destino.ts`:
+
+```ts
+// Puro: sem React, sem alias, testável sob node --test.
+
+/** Só aceita caminho interno como destino pós-login. Qualquer outra coisa
+ *  cai no padrão — ver destino.test.ts para o que "outra coisa" inclui. */
+export function destinoSeguro(bruto: unknown): string {
+  if (typeof bruto !== "string") return "/inbox";
+  if (!bruto.startsWith("/")) return "/inbox";
+  if (bruto.startsWith("//") || bruto.startsWith("/\\")) return "/inbox";
+  return bruto;
+}
+```
+
+- [ ] **Step 2b: Escrever a tela de login**
 
 Cria `src/routes/login.tsx`. Estilização mínima — a base do Tailwind chega na Task 4; aqui o objetivo é o fluxo funcionar:
 
@@ -363,22 +422,7 @@ Cria `src/routes/login.tsx`. Estilização mínima — a base do Tailwind chega 
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { entrar } from "@/lib/auth/auth.functions";
-
-/**
- * Só aceita caminho interno como destino pós-login.
- *
- * `?destino=` vem da URL, ou seja, de quem mandar o link. Sem esta checagem,
- * `//evil.com` seria resolvido pelo navegador contra a origem atual e viraria
- * `https://evil.com` — a vítima faz login de verdade e depois é levada para
- * fora, com a aparência de que o app a mandou. Barrar `//` e `/\` é o que
- * separa caminho interno de URL protocol-relative.
- */
-export function destinoSeguro(bruto: unknown): string {
-  if (typeof bruto !== "string") return "/inbox";
-  if (!bruto.startsWith("/")) return "/inbox";
-  if (bruto.startsWith("//") || bruto.startsWith("/\\")) return "/inbox";
-  return bruto;
-}
+import { destinoSeguro } from "@/lib/auth/destino";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (busca: Record<string, unknown>) => ({
@@ -462,7 +506,8 @@ Run: `bun run dev`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/auth/auth.functions.ts src/routes/login.tsx src/routeTree.gen.ts
+git add src/lib/auth/auth.functions.ts src/lib/auth/destino.ts src/lib/auth/destino.test.ts \
+  src/routes/login.tsx src/routeTree.gen.ts
 git commit -m "feat(auth): tela de login e server functions entrar/sair"
 ```
 
