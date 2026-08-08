@@ -136,12 +136,19 @@ export const marcarConversaLida = createServerFn({ method: "POST" })
 export const resolverAtencao = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
   .validator((dados: unknown) => porLead.parse(dados))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("leads").update({ precisa_atencao: false }).eq("id", data.leadId);
-    await supabaseAdmin
+    const { error: erroUpdate } = await supabaseAdmin
+      .from("leads")
+      .update({ precisa_atencao: false })
+      .eq("id", data.leadId);
+    if (erroUpdate) return { ok: false, erro: erroUpdate.message };
+
+    const { error: erroEvento } = await supabaseAdmin
       .from("eventos_lead")
       .insert({ lead_id: data.leadId, tipo_evento: "atencao_resolvida", detalhe: {} });
+    if (erroEvento) return { ok: false, erro: erroEvento.message };
+
     return { ok: true };
   });
 
@@ -257,27 +264,14 @@ export const excluirTarefaDoCrm = createServerFn({ method: "POST" })
   });
 
 /**
- * Reenvia uma mensagem que ficou em `falhou`. Relê texto, conversa e lead do
- * banco a partir do ID — o cliente manda só qual mensagem, nunca o conteúdo.
+ * Reenvia uma mensagem que ficou em `falhou`. O cliente manda só qual
+ * mensagem; todo o resto sai do banco.
  */
 export const reenviarMensagem = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
   .validator((dados: unknown) => porMensagem.parse(dados))
   .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: mensagem } = await supabaseAdmin
-      .from("mensagens")
-      .select("id, conversa_id, lead_id, conteudo, status")
-      .eq("id", data.mensagemId)
-      .maybeSingle();
-
-    if (!mensagem) return { ok: false, erro: "mensagem não encontrada" };
-    if (mensagem.status !== "falhou") return { ok: false, erro: "mensagem não está falhada" };
-
-    const { responderComoHumano } = await import("./inbox.server.ts");
-    return responderComoHumano(supabaseAdmin, {
-      conversaId: mensagem.conversa_id,
-      leadId: mensagem.lead_id,
-      texto: mensagem.conteudo ?? "",
-    });
+    const { reenviarFalhada } = await import("./inbox.server.ts");
+    return reenviarFalhada(supabaseAdmin, data.mensagemId);
   });

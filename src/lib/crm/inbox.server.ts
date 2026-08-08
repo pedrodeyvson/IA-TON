@@ -74,3 +74,65 @@ export async function responderComoHumano(
 
   return envio;
 }
+
+/**
+ * Reenvia uma mensagem que ficou em `falhou`, reaproveitando a MESMA linha.
+ *
+ * Inserir uma linha nova deixaria a original em `falhou` para sempre: o botão
+ * de reenviar não sumiria da tela e cada clique viraria outro WhatsApp para o
+ * lead. Passar por `pendente` também é o que torna o duplo clique inofensivo —
+ * a segunda chamada encontra a mensagem fora de `falhou` e recusa.
+ */
+export async function reenviarFalhada(
+  admin: any,
+  mensagemId: string,
+  deps: DepsResposta = {},
+): Promise<{ ok: boolean; erro?: string }> {
+  const { data: mensagem, error: erroLeitura } = await admin
+    .from("mensagens")
+    .select("id, conversa_id, lead_id, conteudo, status")
+    .eq("id", mensagemId)
+    .maybeSingle();
+
+  if (erroLeitura) return { ok: false, erro: erroLeitura.message };
+  if (!mensagem) return { ok: false, erro: "mensagem não encontrada" };
+  if (mensagem.status !== "falhou") return { ok: false, erro: "mensagem não está falhada" };
+
+  const texto = mensagem.conteudo?.trim();
+  if (!texto) return { ok: false, erro: "mensagem sem texto para reenviar" };
+
+  const { data: lead, error: erroLead } = await admin
+    .from("leads")
+    .select("id, telefone")
+    .eq("id", mensagem.lead_id)
+    .maybeSingle();
+
+  if (erroLead) return { ok: false, erro: erroLead.message };
+  if (!lead?.telefone) return { ok: false, erro: "lead sem telefone real" };
+
+  await admin.from("mensagens").update({ status: "pendente" }).eq("id", mensagemId);
+
+  const enviar = deps.enviar ?? (await enviarPelaUazapi());
+  let resposta: any;
+  try {
+    resposta = await enviar(lead.telefone, texto);
+  } catch (err: any) {
+    await admin.from("mensagens").update({ status: "falhou" }).eq("id", mensagemId);
+    return { ok: false, erro: err?.message ?? "erro desconhecido ao reenviar" };
+  }
+
+  await admin
+    .from("mensagens")
+    .update({ status: "enviada", provider_message_id: resposta?.messageid ?? resposta?.id ?? null })
+    .eq("id", mensagemId);
+
+  return { ok: true };
+}
+
+/** Resolve o envio real só quando não há dublê — mantém a UAZAPI fora do teste. */
+async function enviarPelaUazapi(): Promise<(numero: string, texto: string) => Promise<any>> {
+  const token = process.env.UAZAPI_TOKEN;
+  if (!token) throw new Error("UAZAPI_TOKEN não configurado");
+  const { enviarTexto } = await import("../uazapi/client.server.ts");
+  return (numero, texto) => enviarTexto(token, numero, texto);
+}
