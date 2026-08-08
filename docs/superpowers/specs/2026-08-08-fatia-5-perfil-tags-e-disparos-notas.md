@@ -105,3 +105,30 @@ real** em vez de deduzir do `.select()`. O embed `conversas(...)` volta como
 OBJETO (relação to-one, `lead_id` é UNIQUE), não array — `rotulos.test.ts`
 dublava array, ficou verde por três tasks e o inbox inteiro estava morto
 (corrigido em `5b626ff`). O mesmo vale para qualquer coisa nova aqui.
+
+## Adendo (mesmo dia): mais pedidos do dono para esta fatia
+
+6. **Horário dentro da própria conversa**, em cada bolha — não só na lista.
+   Reusar `rotuloDeHorario` de `src/components/crm/rotulos.ts` (já fixa o fuso
+   em America/Sao_Paulo para SSR e cliente concordarem).
+7. **Tag visível de autoria na bolha da IA.** Hoje `Bolha.tsx` já usa três
+   cores por `remetente` (lead/ia/humano) e escreve "Cliente"/"Mika", mas o
+   dono quer um marcador explícito de que aquela mensagem foi da IA.
+8. **Tags e marcadores no inbox e no kanban**, replicando o CPI: etapa em que
+   o lead está, máquina de interesse, e origem Meta Ads como tag na linha da
+   lista (hoje só existe o bloco "Veio de anúncio" dentro do painel).
+
+### O que o CPI tem de tags — levantado, mas AINDA NÃO É SUFICIENTE
+
+`crm_leads.tags` é um `string[]` (`types.ts:591`) — tags livres por lead, sem
+tabela própria. Além disso existe `crm_custom_stages` (`crm_leads.custom_stage_id`),
+que são colunas de kanban configuráveis por organização, com
+`CustomStagesManager.tsx` para administrá-las.
+
+**Cuidado ao replicar:** o CPI é multi-org e tem kanban com colunas
+configuráveis; este projeto é de uso individual e tem funil FIXO de 8 estágios
+(`src/lib/crm/estagios.ts`), com mapeamento fixo para os eventos CAPI
+(`capi.constants.ts:60`). Copiar `custom_stages` quebraria esse mapeamento.
+Antes de implementar, confirmar com o dono se ele quer tags LIVRES (rótulo que
+ele digita) ou só os marcadores derivados que já existem (estágio, máquina,
+origem) — são coisas diferentes e o pedido comporta as duas leituras.

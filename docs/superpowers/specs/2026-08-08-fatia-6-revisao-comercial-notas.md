@@ -1,0 +1,203 @@
+# Fatia 6 (a fazer): revisão comercial da Mika e resgate pré-link
+
+Análise feita em 08/08/2026 sobre conversas REAIS do banco de produção, não
+sobre hipótese. Decidido com o dono. Entra depois da Fatia 4; pode vir antes ou
+depois da Fatia 5, mas **esta tem impacto direto em receita** e a 5 é
+apresentação — se for para escolher, esta primeiro.
+
+## 1. O buraco: a régua só existe depois do link
+
+`src/lib/crm/regua.ts` conta os 4 toques a partir de `linkEnviadoEmMs`. Quem
+some ANTES do link nunca recebe nada.
+
+Medido no banco em 08/08/2026, só leads reais (exclui o prefixo de demo):
+
+| estágio | leads | com toque agendado | com link |
+| --- | --- | --- | --- |
+| qualificando | 7 | **0** | 0 |
+| apresentando_solucao | 2 | 1 | 0 |
+| convertido | 1 | 0 | 0 |
+| novo | 1 | 0 | 0 |
+
+7 de 11 leads reais em beco sem saída. Não é cadência tímida, é ausência de
+cadência exatamente onde o funil mais vaza.
+
+Caso concreto: `558287042709` escreveu **"QUERO ADQUIRIR UMA MÁQUINA DA TON"**
+às 08:29 (lead de anúncio, pronto para comprar). A Mika perguntou a taxa da
+concorrente e silenciou. Ele voltou sozinho 6h depois com "Oi" e **recebeu a
+mesma pergunta de novo**. Sem a iniciativa dele, estava perdido.
+
+## 2. O erro comercial mais caro
+
+Conversa `558487778591`. Cliente informa 1,5% débito / 2,5% crédito na Cielo.
+Resposta da Mika:
+
+> **Débito:** 1,69% · **Crédito à vista:** 3,86%
+> "Então, nessa comparação, o crédito sobe e o débito também."
+
+Ela entregou o argumento contra a própria venda e parou. Faltou o segundo
+movimento. O cliente comprou **apesar** disso.
+
+**Decisão do dono: mudar de eixo, sem mentir.** Quando a taxa nominal perde, a
+Mika para de discutir taxa e vai para recebimento na hora vs D+30, ausência de
+aluguel e Pix 0%. E antes disso faz a pergunta que não foi feita: *"esse 2,5%
+cai em quantos dias?"* — comparar 3,86% na hora com 2,5% em 30 dias é comparar
+coisas diferentes. **Nunca inventar número**: se não souber o prazo do
+concorrente, pergunta.
+
+## 3. Outros padrões observados
+
+- **Recomenda e volta a qualificar.** Disse "iria de Ton Mega+ mesmo" e mandou
+  o link do CATÁLOGO (ponto de fuga: tira o cliente da conversa), e só depois
+  perguntou "T2 ou T3?". Ordem certa: qualifica → fecha num modelo → manda
+  checkout. Catálogo é para indeciso, não para quem já foi diagnosticado.
+- **Repetição robótica.** Com `558781094754` (Henrique), três mensagens
+  seguidas com a mesma pergunta, mesmo após duas respostas incoerentes
+  (transcrição de áudio quebrada: "É um alveg lita safnai"). Devia ter
+  escalado para o dono na segunda. O `urgencia_remarketing.pdf` chama isso de
+  "mandar a mesma mensagem de novo".
+- **Lead quente tratado como frio.** "QUERO ADQUIRIR UMA MÁQUINA" recebe o
+  mesmo gate de "qual sua taxa hoje?" que um curioso. Para quem chega pronto, é
+  fricção pura. Precisa de um caminho curto: CPF ou CNPJ → volume → checkout.
+
+## 4. Cadência de resgate pré-link
+
+Pedido do dono: toques de 1h, 3h, 6h e 12h ANTES da régua oficial.
+
+Feito **com função diferente por toque**, não repetindo a pergunta — quatro
+toques iguais em 12h é o que o material da Ton classifica como "frequência sem
+cadência → perseguição, contra diretrizes". A régua oficial (1, 2, 5, 10 dias,
+4 toques, pausa de 30) continua intacta e começa quando o link sai.
+
+| toque | quando | trabalho |
+| --- | --- | --- |
+| 1 | 1h | mesma pergunta, mas FECHADA: "é CPF ou CNPJ?" — barata de responder |
+| 2 | 3h | entrega valor sem pedir nada: recebimento na hora / Pix 0% |
+| 3 | 6h | prova concreta: conta lado a lado do faturamento dele |
+| 4 | 12h | última chamada leve + porta aberta |
+| → | link enviado | começa a régua oficial da Ton |
+
+### Janela de silêncio 21h–08h — decisão do dono
+
+Toque que cairia na madrugada é **adiado para as 8h**; o relógio da cadência
+não zera, só desloca. Sem isso, um lead que escreve às 22h receberia mensagem
+automática às **01h e 04h** — caminho mais rápido para denúncia e banimento do
+número, e aí o problema deixa de ser conversão.
+
+Não existe nenhuma lógica de horário hoje em `politica.ts` nem em `regua.ts`;
+é código novo.
+
+### Pontos de atenção para quem implementar
+
+- `nao_perturbe` continua absoluto: nenhum toque de resgate para quem pediu
+  para parar.
+- O resgate para no instante em que o lead responde — o gatilho é silêncio,
+  não tempo decorrido.
+- `TOTAL_DE_TOQUES` e `followup_toque` hoje têm `check between 0 and 4` no
+  banco (`20260808b_agente_regua.sql`). O resgate pré-link precisa de contador
+  PRÓPRIO, não pode reusar `followup_toque`, senão a régua oficial começa já
+  esgotada. Migration nova.
+- O fuso da janela de silêncio é America/Sao_Paulo, mesmo problema de SSR já
+  resolvido em `rotulos.ts` — reusar a mesma abordagem de fixar o fuso.
+
+## 5. O que o CPI já resolveu — e que é para replicar
+
+O CPI tem um subsistema inteiro de follow-up, com números de produção por trás.
+Arquivos: `followup-estrategia.ts`, `followup-horario.ts`,
+`followup-encerramento.ts`, `followup-falhas.ts`, `followup-worker.server.ts`.
+Todos puros + worker, com teste ao lado. É o desenho a copiar.
+
+### A ESCADA de ângulos — com taxa de resposta medida
+
+`followup-estrategia.ts` documenta uma medição real: **14 dias, 497
+follow-ups, taxa de resposta em 24h**.
+
+| padrão da mensagem | resposta em 24h |
+| --- | --- |
+| mesmo assunto, **ÂNGULO NOVO** | **46,8%** ← melhor |
+| termina com pergunta | 46,5% |
+| assunto totalmente novo | 35,4% |
+| sem pergunta | 23,8% |
+| **pergunta REFORMULADA** | **27,8%** ← pior |
+
+**Isto condena o comportamento atual da Mika com dado, não com opinião.** Ela
+hoje reformula a mesma pergunta ("qual maquininha você usa e quanto paga de
+taxa") — o padrão de PIOR desempenho da tabela. Com o Henrique ela fez isso
+três vezes seguidas.
+
+Duas regras que saem daí: sempre terminar com UMA pergunta fácil de responder,
+e manter o assunto (o caso dele) mudando só o ÂNGULO.
+
+Ciclo de ângulos do CPI: `facilitar` → `valor` → `objecao` → `prova_social`, e
+a última tentativa da cadência vira sempre `despedida` (sem pergunta, porta
+aberta). Cada ângulo é um bloco de instrução no prompt, não um texto pronto —
+por isso o follow-up sai com contexto da conversa.
+
+Tradução para o nosso caso (a de baixo é adaptação, o CPI é escritório de
+advocacia e tem restrição da OAB que não se aplica a nós):
+
+| ângulo | no contexto Ton |
+| --- | --- |
+| facilitar | troca a pergunta aberta por fechada: "é CPF ou CNPJ?" |
+| valor | entrega antes de pedir: recebimento na hora, Pix 0%, sem aluguel |
+| objecao | nomeia o receio provável (taxa, fidelidade, golpe) e desarma |
+| prova_social | normaliza: "esse perfil de venda é o mais comum aqui" |
+| despedida | encerra cordial, sem pergunta, porta aberta |
+
+### Janela de horário — o CPI é MAIS restrito que a nossa decisão
+
+`followup-horario.ts`: padrão **8h–18h**, e o motivo está documentado. Auditoria
+de 31/07/2026 achou 78 mensagens da IA fora do horário comercial em 7 dias — e
+entre 0h e 4h, das 33 mensagens, **nenhuma era resposta a lead: eram todas
+cutucadas de follow-up**. O caso que fechou a decisão: um lead se despediu às
+21:36 e recebeu mensagem às 00:55 e 02:55.
+
+Nossa decisão foi 21h–08h, mais permissiva. É defensável — lojista vende à
+noite, advogado não —, mas registre-se que o CPI escolheu mais apertado depois
+de ver o estrago. Dois pontos do desenho dele valem copiar sem discussão:
+o bloqueio vale **só para follow-up** (se o lead escreve de madrugada, a IA
+responde na hora — quem procurou foi ele), e o toque bloqueado é
+**reagendado, não perdido** — a cadência continua inteira.
+
+### Falhas de envio — não temos nada disso, e vamos precisar
+
+`followup-falhas.ts`, origem em 31/07/2026: o `catch` do worker reagendava o
+backoff a cada falha e não contava nada. Quando três leads bloquearam o número,
+o worker bateu neles de 20 em 20 minutos por mais de 6 horas — **42 tentativas,
+nenhuma entregue**. Insistir com quem bloqueou é o caminho mais curto para o
+chip ser marcado como spam.
+
+Regra: `MAX_FALHAS_DESTINATARIO = 3` rejeições consecutivas **do destinatário**
+e para. Distingue falha do destinatário (uazapi devolve 500 com "The WhatsApp
+server rejected this message") de falha transitória — só a primeira conta.
+
+**Nosso `registrarFalha` hoje faz backoff e não distingue os dois casos.** Com a
+cadência mais agressiva que o dono pediu, isso deixa de ser detalhe: mais
+toques contra um número que bloqueou = mais chance de queimar o chip.
+
+### Encerramento da cadência
+
+`followup-encerramento.ts` existe por um bug que vale conhecer: a cadeia de
+`if` no worker reescrevia para "perdido" um lead que JÁ tinha sido classificado
+e já tinha evento de conversão enviado à Meta — irreversível. Lição: o
+esgotamento do follow-up é regra pura e testável, não `if` solto dentro do
+worker.
+
+## 6. Observabilidade do agente (telas que o dono mostrou)
+
+O CPI tem, em `/crm/ai-agent`, quatro abas: Configuração, Base de conhecimento
+(FAQs editáveis — é a Fatia 3 que adiamos), **Desempenho** e **Histórico**.
+
+- **Desempenho**: atendidos, taxa de qualificação, de agendamento, de
+  comparecimento, de conversão, tempo médio de resposta, e tokens consumidos
+  hoje com % vindo de cache.
+- **Histórico de turnos**: uma linha por turno com quando, **origem**
+  (`follow_up` vs `resposta_lead`), status, tokens (e quanto veio de cache) e
+  quais **tools** foram chamadas (`search_knowledge_base`, `escalate_to_human`).
+
+É isso que o dono chamou de "a parte do histórico que mostra falhas e
+problemas". Sem essa tela, um follow-up que falha some — foi exatamente o que
+aconteceu com o CAPI aqui por um dia inteiro.
+
+Depende de gravar por turno: origem, status, tokens (in/out/cache), tools
+usadas e o erro quando houver. Hoje não gravamos turno nenhum.
