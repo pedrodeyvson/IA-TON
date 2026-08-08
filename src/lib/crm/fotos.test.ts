@@ -44,3 +44,17 @@ test("anexarFotosAssinadas: caminho sem URL assinada (falha do storage) não que
   });
   assert.equal(r[0].foto_url, null);
 });
+
+test("anexarFotosAssinadas: assinarEmLote lançando exceção (rede caiu, client explodiu) não quebra a listagem", async () => {
+  const leads = [
+    { id: "L1", foto_path: "L1.jpg" },
+    { id: "L2", foto_path: null },
+  ];
+  const r = await anexarFotosAssinadas({}, leads, {
+    assinarEmLote: async () => {
+      throw new Error("falha de rede simulada");
+    },
+  });
+  assert.equal(r[0].foto_url, null);
+  assert.equal(r[1].foto_url, undefined);
+});

@@ -33,7 +33,14 @@ export async function anexarFotosAssinadas(
   if (caminhos.length === 0) return leads;
 
   const assinar = deps.assinarEmLote ?? assinarEmLoteReal;
-  const mapa = await assinar(admin, caminhos);
+  let mapa: Map<string, string>;
+  try {
+    mapa = await assinar(admin, caminhos);
+  } catch {
+    // best-effort: falha ao assinar foto (rede, exceção do client de
+    // Storage) nunca pode derrubar a listagem inteira do inbox.
+    mapa = new Map();
+  }
 
   return leads.map((l) =>
     l.foto_path ? { ...l, foto_url: mapa.get(l.foto_path) ?? null } : l,
