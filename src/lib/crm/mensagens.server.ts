@@ -11,6 +11,11 @@ export async function listarMensagens(
     .select("id, remetente, direcao, tipo, conteudo, transcricao, transcricao_status, media_path, status, timestamp_ms, criado_em")
     .eq("conversa_id", conversaId)
     .order("timestamp_ms", { ascending: false })
+    // Desempate por id: duas mensagens com o MESMO timestamp_ms (comum quando
+    // o lead manda duas seguidas) sairiam em ordem arbitrária, e a cada poll
+    // de 5s a ordem podia trocar — o que muda qual é a "última" mensagem e
+    // reembaralha a tela sem nada ter acontecido.
+    .order("id", { ascending: false })
     .limit(limite);
   // O banco devolve do mais novo para o mais velho (o índice é assim); a
   // conversa se lê ao contrário.

@@ -58,8 +58,10 @@ function TelaConversa() {
   });
 
   return (
-    <div className="grid h-full grid-cols-[1fr_340px]">
-      <div className="flex min-w-0 flex-col">
+    // Mesma armadilha do grid de `_app/inbox.tsx`: sem `min-h-0` os itens
+    // esticam com o conteúdo e o histórico deixa de ser o que rola.
+    <div className="grid h-full min-h-0 grid-cols-[1fr_340px]">
+      <div className="flex min-h-0 min-w-0 flex-col">
         <header className="flex items-center gap-3 border-b border-[var(--color-borda)] px-4 py-2">
           <strong>{lead?.nome ?? lead?.telefone ?? "Conversa"}</strong>
           <span className="text-sm text-[var(--color-suave)]">{lead?.telefone ?? "sem telefone"}</span>
