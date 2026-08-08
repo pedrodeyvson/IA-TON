@@ -29,9 +29,14 @@ async function baixarImagemReal(url: string): Promise<{ bytes: Uint8Array; mime:
   try {
     const resposta = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!resposta.ok) return null;
+    // Uma resposta 200 com corpo que não é imagem (ex.: página HTML de erro
+    // de CDN quando o link já expirou) nunca deve virar a "foto" do lead —
+    // isso setaria foto_path e o curto-circuito pararia de tentar de novo.
+    const mime = resposta.headers.get("content-type") ?? "image/jpeg";
+    if (!mime.startsWith("image/")) return null;
     return {
       bytes: new Uint8Array(await resposta.arrayBuffer()),
-      mime: resposta.headers.get("content-type") ?? "image/jpeg",
+      mime,
     };
   } catch {
     return null;
@@ -52,9 +57,14 @@ async function enviarImagemReal(
 
 /**
  * Busca nome/foto reais do WhatsApp e atualiza o lead — só o que falta.
- * Curto-circuita ANTES de qualquer chamada externa quando não há nada a
- * atualizar (nome já é de verdade e foto já existe): evita martelar a UAZAPI
- * a cada mensagem de um lead que simplesmente não tem foto no WhatsApp.
+ * Curto-circuita ANTES de qualquer chamada externa apenas quando NÃO há nada
+ * a atualizar (nome já é de verdade E foto já está gravada): evita repetir a
+ * chamada a `/chat/details` quando os dois já foram resolvidos. Isso NÃO
+ * cobre o lead que simplesmente não tem foto no WhatsApp — `foto_path` nunca
+ * é setado nesse caso, então `precisaFoto` continua `true` para sempre e
+ * `/chat/details` volta a ser chamado a cada mensagem de entrada desse lead
+ * (achado da revisão final da Fatia 5; corrigir isso — ex.: cooldown ou
+ * marcador de "já tentamos e não tinha foto" — está fora do escopo aqui).
  */
 export async function sincronizarPerfil(
   admin: any,
@@ -83,7 +93,11 @@ export async function sincronizarPerfil(
     let atualizouNome = false;
     if (precisaNome) {
       const nomeNovo = escolherNomeDoPerfil(perfil);
-      if (nomeNovo) {
+      // O WhatsApp costuma devolver o telefone como wa_name pra contatos que
+      // não estão salvos na agenda — escolherNomeDoPerfil pode devolver esse
+      // outro placeholder. Não grava sem checar de novo, senão precisaNome
+      // fica true pra sempre (nunca resolve de verdade).
+      if (nomeNovo && !nomeEhPlaceholder(nomeNovo, telefone)) {
         await admin.from("leads").update({ nome: nomeNovo }).eq("id", leadId);
         atualizouNome = true;
       }

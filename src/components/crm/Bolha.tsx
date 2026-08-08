@@ -19,6 +19,14 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
   const daCasa = mensagem.remetente !== "lead";
   const temMidia = Boolean(mensagem.media_path);
 
+  // timestamp_ms é bigint not null no banco, mas outros pontos do código
+  // (leads.server.ts) tratam esse mesmo campo com Number(...) defensivamente
+  // — mesmo padrão aqui: new Date(...).toISOString() lançaria RangeError
+  // antes de rotuloDeHorario (que já trata nulidade/invalidade) ser chamado.
+  const timestampMs = Number(mensagem.timestamp_ms);
+  const timestampValido = Number.isFinite(timestampMs);
+  const timestampIso = timestampValido ? new Date(timestampMs).toISOString() : null;
+
   const { data: midia } = useQuery({
     queryKey: ["midia", mensagem.id],
     queryFn: () => comSessao(obterUrlDeMidia({ data: { mensagemId: mensagem.id } })),
@@ -35,9 +43,9 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
       >
         <div className="mb-1 flex items-center gap-2 text-xs text-[var(--color-suave)]">
           <span>{mensagem.remetente === "lead" ? "Cliente" : mensagem.remetente === "ia" ? "Mika" : "Você"}</span>
-          {mensagem.timestamp_ms && (
-            <time dateTime={new Date(mensagem.timestamp_ms).toISOString()}>
-              {rotuloDeHorario(new Date(mensagem.timestamp_ms).toISOString())}
+          {timestampValido && (
+            <time dateTime={timestampIso!}>
+              {rotuloDeHorario(timestampIso)}
             </time>
           )}
         </div>

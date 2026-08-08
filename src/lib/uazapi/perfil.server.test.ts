@@ -85,3 +85,41 @@ test("sincronizarPerfil: falha ao baixar a imagem não impede o nome de ser grav
   assert.equal(r.atualizouNome, true);
   assert.equal(r.atualizouFoto, false);
 });
+
+test("sincronizarPerfil: não grava nome quando escolherNomeDoPerfil devolve outro placeholder (ex.: o próprio telefone)", async () => {
+  // wa_name igual ao telefone é comum pra contatos que não estão salvos na
+  // agenda do WhatsApp — não é edição manual, mas também não é um nome de
+  // verdade: gravar isso deixaria precisaNome=true pra sempre, sem nunca
+  // resolver.
+  const admin = adminComLead({ nome: null, foto_path: "L1.jpg" });
+  const r = await sincronizarPerfil(admin, "L1", TELEFONE, {
+    buscarPerfil: async () => ({ wa_name: TELEFONE }),
+  });
+  assert.equal(r.atualizouNome, false);
+  const updates = admin.chamadas.filter((c) => c.tabela === "leads" && c.operacao === "update");
+  assert.equal(updates.some((u) => u.payload.nome !== undefined), false);
+});
+
+test("sincronizarPerfil: baixarImagemReal (sem DI) rejeita resposta que não é imagem — mimetype errado não vira foto", async () => {
+  // Exercita a função real (não a injetada via deps.baixarImagem), stubando
+  // fetch global — mesmo padrão de stub usado em capi.server.test.ts. Uma
+  // resposta 200 com HTML (CDN devolvendo página de erro pro link expirado)
+  // não pode ser aceita como se fosse a foto.
+  const admin = adminComLead({ nome: "Ana Paula", foto_path: null });
+  const fetchOriginal = globalThis.fetch;
+  (globalThis as any).fetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/html; charset=utf-8" },
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+  try {
+    const r = await sincronizarPerfil(admin, "L1", TELEFONE, {
+      buscarPerfil: async () => ({ image: "https://pps.whatsapp.net/foo.jpg" }),
+    });
+    assert.equal(r.atualizouFoto, false);
+    const updates = admin.chamadas.filter((c) => c.tabela === "leads" && c.operacao === "update");
+    assert.equal(updates.some((u) => u.payload.foto_path !== undefined), false);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+  }
+});
