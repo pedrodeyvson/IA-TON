@@ -92,5 +92,23 @@ export function classificarMensagem(item: any): MensagemNormalizada {
     }
   }
 
+  // Áudio de voz (PTT) chega num formato ACHATADO, diferente do envelope
+  // Baileys acima: `content` já É o descritor de mídia direto (`PTT`,
+  // `mimetype`, `mediaKey`...), sem `.message.audioMessage` aninhado.
+  // Confirmado com payload real de produção (fixtures/reais/webhook-audio-ptt.json)
+  // — sem isto, todo áudio de voz caía silenciosamente em tipo "outro" e a
+  // Mika nunca via o conteúdo. Só cobre PTT (o único caso confirmado); outros
+  // tipos de mídia podem usar o mesmo formato achatado, mas isso não foi
+  // confirmado com payload real ainda — não deduzir, esperar o caso aparecer.
+  if (item?.mediaType === "ptt" || conteudoBruto?.PTT === true) {
+    return {
+      ...base,
+      tipo: "audio",
+      conteudo: null,
+      mediaMime: typeof conteudoBruto?.mimetype === "string" ? conteudoBruto.mimetype : null,
+      mediaFilename: null,
+    };
+  }
+
   return { ...base, tipo: "outro", conteudo: null, mediaMime: null, mediaFilename: null };
 }

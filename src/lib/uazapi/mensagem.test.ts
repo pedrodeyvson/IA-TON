@@ -1,6 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { classificarMensagem } from "./mensagem.ts";
+
+function fixtureReal(nome: string): any {
+  const caminho = fileURLToPath(new URL(`./fixtures/reais/${nome}`, import.meta.url));
+  return JSON.parse(readFileSync(caminho, "utf8"));
+}
+
+test("classifica áudio de voz (PTT) no formato achatado real da UAZAPI", () => {
+  // Payload real de produção (anonimizado) — Fatia 1 só tinha testado mídia
+  // com dado inventado; este confirma o formato real, que não bate com o
+  // envelope Baileys (`content.message.audioMessage`) usado pelos outros
+  // tipos de mídia: aqui `content` já É o descritor de mídia direto.
+  const item = fixtureReal("webhook-audio-ptt.json");
+  const m = classificarMensagem(item);
+  assert.equal(m.tipo, "audio");
+  assert.equal(m.mediaMime, "audio/ogg; codecs=opus");
+  assert.equal(m.providerMessageId, "3ACA7548F2BB73918E17");
+  assert.equal(m.direcao, "in");
+});
 
 test("classifica mensagem de texto simples", () => {
   const m = classificarMensagem({
