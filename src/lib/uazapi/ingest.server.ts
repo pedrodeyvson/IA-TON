@@ -235,6 +235,20 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     console.warn(`[ingest] self-healing de CAPI falhou para lead ${alvo.leadId}:`, err?.message ?? err);
   }
 
+  // Perfil (nome/foto reais do WhatsApp): lead novo sempre, lead existente só
+  // em mensagem de ENTRADA — mesma regra do CPI (spec Fatia 5), para não
+  // martelar a UAZAPI a cada mensagem que NÓS mandamos. sincronizarPerfil já
+  // curto-circuita internamente quando não há nada a atualizar.
+  if (alvo.leadNovo || msg.direcao === "in") {
+    try {
+      const { sincronizarPerfil } = await import("./perfil.server.ts");
+      const { telefone } = resolverTelefoneReal(item, item?.key ?? {});
+      await sincronizarPerfil(admin, alvo.leadId, telefone || null);
+    } catch (err: any) {
+      console.warn(`[ingest] falha ao sincronizar perfil do lead ${alvo.leadId}:`, err?.message ?? err);
+    }
+  }
+
   let mediaPath: string | null = null;
   let transcricao: string | null = null;
   let transcricaoStatus: string | null = null;

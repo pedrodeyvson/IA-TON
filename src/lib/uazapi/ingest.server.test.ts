@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ingerirEvento } from "./ingest.server.ts";
+import { normalizarTelefoneBr } from "../telefone.ts";
 
 /**
  * Fake mínimo do client supabase-js: cada chamada de método acumula estado
@@ -62,6 +63,14 @@ function criarAdminFake() {
           const id =
             tabela === "leads" ? `lead-${++leadSeq}` : tabela === "conversas" ? `conv-${++convSeq}` : `msg-${++msgSeq}`;
           const row = { id, ...payload };
+          if (tabela === "leads") {
+            // Espelha o trigger real (`trg_leads_normalizar_telefone`, ver
+            // 20260807_fundacao.sql): a coluna é gerada pelo Postgres no
+            // insert/update, não pela aplicação — sem isso aqui, a busca por
+            // `telefone_normalizado` em `buscarLeadExistente` nunca acha nada
+            // e todo mundo vira lead duplicado neste fake.
+            row.telefone_normalizado = normalizarTelefoneBr(row.telefone ?? null) || null;
+          }
           rows.push(row);
           resolve({ data: modo === "single" ? { id: row.id } : row, error: null });
           return;
@@ -161,5 +170,60 @@ test("status@broadcast e @newsletter também são ignorados", async () => {
     });
     assert.equal(resultados[0].status, "ignored");
     assert.equal(admin._tabelas.leads.length, 0);
+  }
+});
+
+test("mensagem de lead novo é processada normalmente com a sincronização de perfil ligada (sem UAZAPI_TOKEN, é no-op)", async () => {
+  const tokenOriginal = process.env.UAZAPI_TOKEN;
+  delete process.env.UAZAPI_TOKEN;
+  try {
+    const admin = criarAdminFake();
+    const payload = {
+      EventType: "messages",
+      instance: "instancia-teste",
+      message: {
+        messageid: "MSG-PERFIL-1",
+        key: { remoteJid: "5511987654321@s.whatsapp.net" },
+        content: { conversation: "quero saber mais" },
+        messageTimestamp: 1_700_000_100,
+        pushName: "Cliente Teste",
+      },
+    };
+
+    const resultados = await ingerirEvento(admin, payload);
+
+    assert.equal(resultados.length, 1);
+    assert.equal(resultados[0].status, "ok");
+    assert.equal(admin._tabelas.leads.length, 1, "o lead foi criado normalmente");
+    assert.equal(admin._tabelas.mensagens.length, 1, "a mensagem foi gravada normalmente");
+    // Sem UAZAPI_TOKEN, sincronizarPerfil não tem como ter mudado nada —
+    // confirma que ela rodou (não quebrou o fluxo) e não sujou o lead.
+    assert.equal(admin._tabelas.leads[0].foto_path, undefined);
+  } finally {
+    if (tokenOriginal !== undefined) process.env.UAZAPI_TOKEN = tokenOriginal;
+  }
+});
+
+test("uma segunda mensagem de entrada do mesmo lead continua sendo processada com a sincronização de perfil ligada", async () => {
+  const tokenOriginal = process.env.UAZAPI_TOKEN;
+  delete process.env.UAZAPI_TOKEN;
+  try {
+    const admin = criarAdminFake();
+    const base = {
+      EventType: "messages",
+      instance: "instancia-teste",
+      message: {
+        key: { remoteJid: "5511987654321@s.whatsapp.net" },
+        messageTimestamp: 1_700_000_100,
+      },
+    };
+    await ingerirEvento(admin, { ...base, message: { ...base.message, messageid: "MSG-A", content: { conversation: "oi" } } });
+    const resultados = await ingerirEvento(admin, { ...base, message: { ...base.message, messageid: "MSG-B", content: { conversation: "tudo bem?" } } });
+
+    assert.equal(resultados[0].status, "ok");
+    assert.equal(admin._tabelas.leads.length, 1, "mesma pessoa, não duplica o lead");
+    assert.equal(admin._tabelas.mensagens.length, 2);
+  } finally {
+    if (tokenOriginal !== undefined) process.env.UAZAPI_TOKEN = tokenOriginal;
   }
 });
