@@ -127,6 +127,36 @@ test("sem TON_REFERRER escala em vez de mandar link sem indicação", async () =
   }
 });
 
+test("registrar_link_enviado não manda o link quando o toque é recusado por não-perturbe", async () => {
+  process.env.TON_REFERRER = REF;
+  const admin = criarAdminFake({
+    "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    "conversas.select": { data: { id: "C1", leads: { nao_perturbe: true } }, error: null },
+  });
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+
+  assert.equal(r.escalou, true);
+  assert.equal(r.conteudo.includes("https://"), false, "o link não pode aparecer na resposta");
+  assert.equal(updateDe(admin, "leads").estagio, undefined, "o estágio não pode mudar para link_enviado");
+  assert.equal(updateDe(admin, "leads").precisa_atencao, true);
+  assert.equal(updateDe(admin, "conversas").pausada_pela_ia, true);
+});
+
+test("registrar_link_enviado não manda o link quando não dá para confirmar o opt-out", async () => {
+  process.env.TON_REFERRER = REF;
+  const admin = criarAdminFake({
+    "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    "conversas.select": () => ({ data: null, error: { message: "conexão com o banco caiu" } }),
+  });
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+
+  assert.equal(r.escalou, true);
+  assert.equal(r.conteudo.includes("https://"), false, "o link não pode aparecer na resposta");
+  assert.equal(updateDe(admin, "leads").estagio, undefined, "o estágio não pode mudar para link_enviado");
+  assert.equal(updateDe(admin, "leads").precisa_atencao, true);
+  assert.equal(updateDe(admin, "conversas").pausada_pela_ia, true);
+});
+
 test("resultado comprou converte o lead e encerra a régua", async () => {
   const admin = adminComLead("link_enviado");
   const r = await executarTool(admin, "registrar_resultado_compra", { resultado: "comprou" }, CTX);

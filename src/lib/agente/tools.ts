@@ -203,32 +203,42 @@ async function executarRegistrarLink(
   const produto = argumentos.produto as keyof typeof PRODUTOS | "catalogo";
   const rotulo = produto === "catalogo" ? "catálogo" : (PRODUTOS[produto].nome ?? produto);
 
+  // Confere ANTES de mexer no lead ou na conversa se dá para agendar o
+  // próximo toque. agendarToque devolve um resultado (proteção de opt-out do
+  // Task 5) — não pode ser ignorado. Se recusar (lead em não-perturbe, ou
+  // falha ao confirmar que não está), é opt-out real: espelha exatamente o
+  // branch `nao_perturbe` de executarResultadoCompra — não manda o link, não
+  // move o estágio, escala de verdade. Uma mensagem comercial não pode sair
+  // "com aviso" para quem pediu para parar; os dois motivos de recusa
+  // (nao_perturbe confirmado ou falha ao confirmar) são tratados igual, por
+  // segurança — não dá para distinguir "parou" de "não sei se parou".
+  const agora = Date.now();
+  const plano = planejarProximoToque(0, agora, agora);
+  if (plano.tipo === "toque") {
+    const agendamento = await agendarToque(admin, ctx.conversaId, plano.quandoIso);
+    if (!agendamento.agendado) {
+      await marcarPrecisaAtencao(
+        admin,
+        ctx.leadId,
+        `Link não enviado: agendamento do toque recusado (${agendamento.motivo}).`,
+      );
+      await pausarIa(admin, ctx.conversaId);
+      return {
+        conteudo:
+          "Erro: não é seguro enviar o link para este lead agora (checagem de não-perturbe " +
+          "recusou o agendamento do toque). Nada foi enviado. A conversa foi passada para o Pedro.",
+        escalou: true,
+      };
+    }
+  }
+
   await moverEstagio(admin, ctx.leadId, "link_enviado", { origem: "agente", produto });
 
   // Link novo abre ciclo novo: zera o contador de toques e qualquer pausa
   // herdada de um ciclo anterior.
   await reiniciarCiclo(admin, ctx.conversaId);
 
-  let avisoToque = "";
-  const agora = Date.now();
-  const plano = planejarProximoToque(0, agora, agora);
-  if (plano.tipo === "toque") {
-    // agendarToque agora devolve um resultado (proteção de opt-out do Task 5)
-    // — não pode ser ignorado: um erro na checagem ou um lead em não perturbe
-    // tem que virar aviso para o Pedro, nunca um toque silenciosamente perdido.
-    const agendamento = await agendarToque(admin, ctx.conversaId, plano.quandoIso);
-    if (!agendamento.agendado) {
-      await marcarPrecisaAtencao(
-        admin,
-        ctx.leadId,
-        `Toque automático não agendado após link enviado: ${agendamento.motivo}`,
-      );
-      avisoToque =
-        " (aviso: o toque automático de acompanhamento não pôde ser agendado — o Pedro foi avisado.)";
-    }
-  }
-
-  return { conteudo: `Link do ${rotulo} para enviar ao cliente: ${link.url}${avisoToque}` };
+  return { conteudo: `Link do ${rotulo} para enviar ao cliente: ${link.url}` };
 }
 
 async function executarResultadoCompra(
