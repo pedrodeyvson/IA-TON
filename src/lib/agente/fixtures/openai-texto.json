@@ -1,0 +1,35 @@
+{
+  "id": "chatcmpl-EAPY28cp2gp7N2xPLB3NJDIuRIVvm",
+  "object": "chat.completion",
+  "created": 1786150194,
+  "model": "gpt-5.4-mini-2026-03-17",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Claro — me diga se você quer comparar taxas, prazo de recebimento, bandeiras aceitas ou o melhor modelo para o seu tipo de negócio.",
+        "refusal": null,
+        "annotations": []
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 35,
+    "completion_tokens": 33,
+    "total_tokens": 68,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
