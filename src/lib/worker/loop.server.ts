@@ -64,7 +64,12 @@ export async function processarPendentes(admin: any, deps: DepsWorker = {}): Pro
     const resultado = await rodarTurno(admin, {
       conversaId: conversa.id,
       leadId: conversa.lead_id,
-      motivo: conversa.motivo_agendamento === "followup" ? "followup" : "resposta",
+      motivo:
+        conversa.motivo_agendamento === "followup"
+          ? "followup"
+          : conversa.motivo_agendamento === "resgate"
+            ? "resgate"
+            : "resposta",
     });
 
     if (resultado.status === "erro") {

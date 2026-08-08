@@ -149,3 +149,40 @@ export async function coletarEvidenciaDoLead(admin: any, leadId: string) {
     compraConfirmada: lead?.estagio === "convertido",
   };
 }
+
+/**
+ * Timestamp (ms) da PRIMEIRA mensagem real do lead — descontada a saudação
+ * automática do botão do anúncio, mesmo critério de `coletarEvidenciaDoLead`.
+ *
+ * É o marco zero da cadência de resgate pré-link (spec §4): o silêncio do
+ * lead só começa a contar da primeira coisa que ELE escreveu, nunca do
+ * clique no anúncio (que manda a saudação pronta sem ele ter digitado nada).
+ *
+ * `null` quando o lead ainda não escreveu nada de verdade — quem chama decide
+ * o fallback (`planejarProximoResgate` já conta a partir de "agora" quando
+ * recebe uma data ilegível).
+ */
+export async function obterPrimeiraRespostaDoLead(
+  admin: any,
+  leadId: string,
+): Promise<number | null> {
+  const { ehSaudacaoDeAnuncio } = await import("./estagios.ts");
+
+  const { data: falas } = await admin
+    .from("mensagens")
+    .select("remetente, conteudo, timestamp_ms")
+    .eq("lead_id", leadId)
+    .eq("remetente", "lead")
+    .limit(50);
+
+  // Filtra remetente também do lado de cá (não só na query): mesma defesa em
+  // profundidade já usada em `motivoParaRecusarAgendamento` — não depender só
+  // de disciplina externa (aqui, de o `.eq` ter sido aplicado de verdade).
+  const respostasReais = (falas ?? [])
+    .filter((m: any) => m.remetente === "lead" && !ehSaudacaoDeAnuncio(m.conteudo))
+    .map((m: any) => Number(m.timestamp_ms))
+    .filter((ms: number) => Number.isFinite(ms));
+
+  if (respostasReais.length === 0) return null;
+  return Math.min(...respostasReais);
+}

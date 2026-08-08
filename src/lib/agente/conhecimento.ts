@@ -418,6 +418,36 @@ export const ANGULO_DO_TOQUE: Record<1 | 2 | 3 | 4, string> = {
     "dizendo que fica à disposição, sem cobrar resposta.",
 };
 
+/**
+ * O ângulo de cada toque do RESGATE pré-link (spec §4/§10.1) — cadência
+ * SEPARADA e mais rápida que `ANGULO_DO_TOQUE` (1h/3h/6h/12h, antes de
+ * qualquer link sair). Aplica SPIN: a Situação já foi perguntada na primeira
+ * mensagem, então nenhum toque daqui reformula aquela pergunta aberta — cada
+ * um usa Implicação ou Ganho (spec §10.1), ou entrega valor de graça.
+ * Reformular a mesma pergunta é o padrão de PIOR resposta medido no CPI
+ * (27,8%, contra 46,8% do ângulo novo) — é exatamente o erro que a Mika comete
+ * hoje com quem some antes do link.
+ */
+export const ANGULO_DO_RESGATE: Record<1 | 2 | 3 | 4, string> = {
+  1:
+    "Não repita a pergunta aberta que você já fez. Troque por UMA pergunta FECHADA e barata de " +
+    "responder — 'é CPF ou CNPJ?' ou 'você já usa maquininha hoje?'. É a mesma Situação, só que " +
+    "mais fácil de responder num toque no celular.",
+  2:
+    "Não pergunte nada ainda. Entregue valor de graça, sem pedir nada em troca: recebimento na " +
+    "hora (não D+30), Pix 0% na maquininha, sem aluguel de aparelho. É reciprocidade — o objetivo " +
+    "é lembrar por que vale a pena responder, não cobrar resposta.",
+  3:
+    "Pergunta de IMPLICAÇÃO usando o número que ele já deu nesta conversa: quanto essa taxa custa " +
+    "a mais por mês (ou por ano) no volume dele. Se ele nunca chegou a dar nenhum número, troque " +
+    "por prova concreta — uma conta simples, lado a lado, com o faturamento que ele mencionou. " +
+    "Nunca invente valor que não esteja na conversa.",
+  4:
+    "Última mensagem do resgate: leve, sem pergunta, sem cobrar resposta. Reconheça que ele pode " +
+    "estar ocupado e deixe a porta aberta — algo como 'sem pressa, quando quiser é só me chamar " +
+    "aqui'. Depois deste toque a régua oficial (pós-link) é que assume, quando o link sair.",
+};
+
 export const CONHECIMENTO_VENDA = [
   PERSONA_E_TOM,
   PRODUTOS_E_PRECOS,

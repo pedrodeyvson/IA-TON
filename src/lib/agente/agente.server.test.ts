@@ -527,3 +527,248 @@ test("resposta vazia do modelo não envia mensagem em branco", async () => {
   assert.equal(enviou, false);
   assert.equal(r.status, "erro");
 });
+
+// ===================== Fatia 6, Task 3: resgate pré-link =====================
+// `agoraMs` fixo via `deps.agoraMs` (novo nesta task) para os testes de janela
+// de silêncio ficarem determinísticos — sem isso, o `Date.now()` real do
+// momento em que o teste roda decidiria se o toque desloca ou não.
+
+const RESGATE = { ...CTX, motivo: "resgate" as const };
+
+// 15h em São Paulo (fuso fixo -03:00): bem dentro da janela 8h-21h, e o toque
+// de 1h (16h SP) também — nenhum deslocamento deveria acontecer.
+const AGORA_DIA = Date.parse("2026-08-10T18:00:00.000Z");
+
+// 22h em São Paulo: já está no silêncio, e o toque de 1h (23h SP) continua no
+// silêncio — tem que deslocar para as 8h do dia seguinte.
+const AGORA_NOITE = Date.parse("2026-08-10T01:00:00.000Z");
+
+function adminDeResgate(sobrescreve: Record<string, any> = {}) {
+  return adminDeConversa({
+    "conversas.select": {
+      data: {
+        id: "C1", lead_id: "L1", pausada_pela_ia: false,
+        followup_toque: 0, ciclo_pausado_ate: null, resgate_toque: 0,
+      },
+      error: null,
+    },
+    ...sobrescreve,
+  });
+}
+
+test("lead sem resposta: toque 1 do resgate é agendado ~1h depois, sem cair no silêncio", async () => {
+  const admin = adminDeResgate({
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero saber da maquininha", timestamp_ms: AGORA_DIA }],
+      error: null,
+    },
+  });
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => ({ texto: "Oi! Você usa CPF ou CNPJ?", toolCalls: [] }),
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_DIA,
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, true, "o resgate acabou de ser agendado — o worker não pode apagar");
+
+  const updates = admin.chamadas.filter((c) => c.tabela === "conversas" && c.operacao === "update");
+  const agendamento = updates.find((u) => u.payload.motivo_agendamento === "resgate");
+  assert.ok(agendamento, "tem que ter agendado o toque 1 do resgate");
+  assert.equal(agendamento!.payload.resgate_toque, 1);
+  assert.equal(agendamento!.payload.responder_em, "2026-08-10T19:00:00.000Z", "1h depois, sem deslocar");
+});
+
+test("toque de resgate que cairia no silêncio (21h-08h) desloca para as 8h, nunca some", async () => {
+  const admin = adminDeResgate({
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero saber da maquininha", timestamp_ms: AGORA_NOITE }],
+      error: null,
+    },
+  });
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => ({ texto: "Oi! Você usa CPF ou CNPJ?", toolCalls: [] }),
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_NOITE,
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, true);
+
+  const updates = admin.chamadas.filter((c) => c.tabela === "conversas" && c.operacao === "update");
+  const agendamento = updates.find((u) => u.payload.motivo_agendamento === "resgate");
+  assert.ok(agendamento);
+  assert.equal(agendamento!.payload.resgate_toque, 1);
+  // Sem a janela de silêncio, o toque cairia às 02:00Z (23h SP) — ainda de
+  // madrugada. Deslocado, sai só às 8h de São Paulo do dia seguinte.
+  assert.equal(agendamento!.payload.responder_em, "2026-08-10T11:00:00.000Z");
+});
+
+test("lead com nao_perturbe nunca tem toque de resgate agendado", async () => {
+  const admin = adminDeResgate({
+    "leads.select": {
+      data: {
+        id: "L1", telefone: "5511987654321", estagio: "qualificando",
+        precisa_atencao: false, nao_perturbe: true, link_enviado_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero saber da maquininha", timestamp_ms: AGORA_DIA }],
+      error: null,
+    },
+  });
+  let chamouModelo = false;
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => { chamouModelo = true; return { texto: "x", toolCalls: [] }; },
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_DIA,
+  });
+
+  assert.equal(r.status, "pulado");
+  assert.equal(r.motivo, "nao_perturbe");
+  assert.equal(chamouModelo, false, "nao_perturbe bloqueia o turno inteiro, antes de qualquer token");
+
+  const agendouResgate = admin.chamadas.some(
+    (c) => c.tabela === "conversas" && c.operacao === "update" && "resgate_toque" in (c.payload ?? {}),
+  );
+  assert.equal(agendouResgate, false);
+});
+
+// Espelha o teste de régua oficial "toque seguinte recusado por não-perturbe":
+// defesa em profundidade contra a corrida (nao_perturbe vira true DEPOIS que
+// decidirTurno já liberou o turno, mas antes do agendamento do resgate).
+test("toque de resgate recusado por não-perturbe concorrente marca atenção e não reagenda", async () => {
+  const admin = adminDeResgate({
+    "conversas.select": {
+      data: {
+        id: "C1", lead_id: "L1", pausada_pela_ia: false,
+        followup_toque: 0, ciclo_pausado_ate: null, resgate_toque: 0,
+        // Mesma chamada de tabela serve o select inicial do turno e o
+        // motivoParaRecusarAgendamento de dentro de agendarResgate (usa
+        // leads.nao_perturbe) — o fake do supabase não distingue as duas
+        // consultas por coluna selecionada.
+        leads: { nao_perturbe: true },
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero saber da maquininha", timestamp_ms: AGORA_DIA }],
+      error: null,
+    },
+  });
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => ({ texto: "Oi! Você usa CPF ou CNPJ?", toolCalls: [] }),
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_DIA,
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, undefined, "não existe agendamento nenhum para o worker preservar");
+
+  const leadAtualizado = admin.chamadas.find((c) => c.tabela === "leads" && c.operacao === "update");
+  assert.equal(leadAtualizado?.payload.precisa_atencao, true);
+});
+
+test("4º toque de resgate sem resposta encerra — nenhum 5º toque, sem pausa de 30 dias", async () => {
+  const admin = adminDeResgate({
+    "conversas.select": {
+      data: {
+        id: "C1", lead_id: "L1", pausada_pela_ia: false,
+        followup_toque: 0, ciclo_pausado_ate: null, resgate_toque: 4,
+      },
+      error: null,
+    },
+    "leads.select": {
+      data: {
+        id: "L1", telefone: "5511987654321", estagio: "qualificando",
+        precisa_atencao: false, nao_perturbe: false, link_enviado_em: null,
+      },
+      error: null,
+    },
+    // Ordem MAIS NOVO PRIMEIRO — mesma convenção de `listarMensagens`, que
+    // inverte o array recebido (o banco real devolve nessa ordem).
+    "mensagens.select": {
+      data: [
+        { remetente: "ia", tipo: "texto", conteudo: "última prova concreta", timestamp_ms: AGORA_DIA - 3_600_000 },
+        { remetente: "lead", tipo: "texto", conteudo: "quero saber da maquininha", timestamp_ms: AGORA_DIA - 12 * 3_600_000 },
+      ],
+      error: null,
+    },
+  });
+  let instrucoes: string[] = [];
+
+  const r = await executarTurno(admin, RESGATE, {
+    chamar: async (mensagens: any[]) => {
+      instrucoes = mensagens.filter((m: any) => m.role === "system").map((m: any) => m.content);
+      return { texto: "Sem pressa, quando quiser é só me chamar aqui.", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_DIA,
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, undefined, "não há 5º toque para preservar");
+
+  const gatilho = instrucoes[instrucoes.length - 1];
+  assert.match(gatilho, /toque 4 de 4/);
+
+  const agendouMais = admin.chamadas.some(
+    (c) => c.tabela === "conversas" && c.operacao === "update" && "resgate_toque" in (c.payload ?? {}),
+  );
+  assert.equal(agendouMais, false, "o 4º toque não agenda um 5º — decisão §9, sem pausa de 30 dias");
+});
+
+// Item 4 da task: a guarda de evidência de registrar_link_enviado ("ainda não
+// respondeu nada") só recusa o link — mas o resgate precisa disparar no MESMO
+// turno em que essa recusa acontece, não como um evento desencontrado depois.
+test("recusa da guarda de evidência do link agenda o resgate no MESMO turno", async () => {
+  const admin = adminDeResgate({
+    "leads.select": {
+      data: {
+        id: "L1", telefone: "5511987654321", estagio: "novo",
+        precisa_atencao: false, nao_perturbe: false, link_enviado_em: null,
+      },
+      error: null,
+    },
+    // Só a saudação automática do anúncio: `coletarEvidenciaDoLead` conta
+    // isso como ZERO respostas do lead (mesmo critério de tools.test.ts), e
+    // `ultima.remetente` continua "lead" — decidirTurno libera o turno
+    // normalmente.
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "Olá! Quero adquirir uma máquina da Ton.", timestamp_ms: AGORA_DIA }],
+      error: null,
+    },
+  });
+  const chamadas: any[][] = [];
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async (mensagens: any[]) => {
+      chamadas.push(mensagens);
+      if (chamadas.length === 1) {
+        return {
+          texto: null,
+          toolCalls: [{ id: "c1", nome: "registrar_link_enviado", argumentos: { produto: "catalogo" } }],
+        };
+      }
+      return { texto: "Pra eu te ajudar certinho: é CPF ou CNPJ?", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+    agoraMs: AGORA_DIA,
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, true, "o resgate foi agendado no mesmo turno que recusou o link");
+
+  const resultadoDaTool = chamadas[1].find((m: any) => m.role === "tool");
+  assert.match(resultadoDaTool.content, /ainda não respondeu nada/);
+
+  const updates = admin.chamadas.filter((c) => c.tabela === "conversas" && c.operacao === "update");
+  const agendamento = updates.find((u) => u.payload.motivo_agendamento === "resgate");
+  assert.ok(agendamento, "a recusa do link e o agendamento do resgate não podem ficar desencontrados");
+  assert.equal(agendamento!.payload.resgate_toque, 1);
+});

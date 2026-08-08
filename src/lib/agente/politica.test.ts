@@ -70,6 +70,29 @@ test("toque PODE rodar com a última mensagem sendo da IA", () => {
   assert.deepEqual(decidirTurno(TOQUE), { responder: true });
 });
 
+// ===================== Fatia 6, Task 3: resgate pré-link =====================
+
+const RESGATE = { ...OK, motivo: "resgate" as const, ultimoRemetente: "ia" };
+
+test("toque de resgate PODE rodar com a última mensagem sendo da IA", () => {
+  // Mesmo caso do toque oficial: o toque existe porque o lead NÃO respondeu.
+  assert.deepEqual(decidirTurno(RESGATE), { responder: true });
+});
+
+test("nao_perturbe interrompe o resgate sempre — invariante que não muda", () => {
+  assert.deepEqual(decidirTurno({ ...RESGATE, naoPerturbe: true }), {
+    responder: false, motivo: "nao_perturbe",
+  });
+});
+
+test("resgate não tem teto fixo nem pausa — quem para é planejarProximoResgate, não decidirTurno", () => {
+  // Diferente do toque oficial (que bloqueia toqueAtual >= 4): o resgate
+  // sempre responde quando chamado. O 4º toque em si RODA normalmente; quem
+  // impede um 5º é a régua pura (resgate.ts), não uma trava de contagem
+  // aqui — ver a Task 3 (agente.server.ts).
+  assert.deepEqual(decidirTurno({ ...RESGATE, toqueAtual: 4 }), { responder: true });
+});
+
 test("o ciclo acaba no 4º toque — não existe 5º", () => {
   assert.deepEqual(decidirTurno({ ...TOQUE, toqueAtual: 4 }), {
     responder: false, motivo: "ciclo_encerrado",

@@ -5,6 +5,7 @@
 // tool registrar_link_enviado devolve o endereço pronto — assim não há como ele
 // colar link cedo, digitar errado ou vazar o referrer numa conversa qualquer.
 import {
+  ANGULO_DO_RESGATE,
   ANGULO_DO_TOQUE,
   CONHECIMENTO_POS_VENDA,
   CONHECIMENTO_VENDA,
@@ -12,6 +13,7 @@ import {
 } from "./conhecimento.ts";
 import { PRODUTOS } from "./links.ts";
 import { TOTAL_DE_TOQUES } from "../crm/regua.ts";
+import { TOTAL_DE_TOQUES_RESGATE } from "../crm/resgate.ts";
 
 export type ModoDoAgente = "venda" | "pos_venda";
 
@@ -123,6 +125,33 @@ export function instrucaoDoToque(toque: number): string {
     "- Não invente prazo, cupom que está acabando nem escassez. Urgência falsa é proibida.",
     "- Não cole o link de novo e não cobre resposta.",
     "- Só use as tools atualizar_lead, registrar_resultado_compra ou escalar_para_humano.",
+  ].join("\n");
+}
+
+/**
+ * O gatilho de um toque do RESGATE pré-link (spec §4) — cadência separada da
+ * régua oficial (`instrucaoDoToque`), usada enquanto o link ainda não saiu.
+ * Mesmo desenho: entra como `system`, nunca como fala do cliente, e o
+ * histórico completo vai junto para o modelo não repetir argumento.
+ */
+export function instrucaoDoResgate(toque: number): string {
+  if (!Number.isInteger(toque) || toque < 1 || toque > TOTAL_DE_TOQUES_RESGATE) {
+    throw new Error(`toque de resgate ${toque} está fora da cadência (1..${TOTAL_DE_TOQUES_RESGATE})`);
+  }
+
+  return [
+    `Você está no toque ${toque} de ${TOTAL_DE_TOQUES_RESGATE} do RESGATE — o cliente ainda não`,
+    "respondeu desde a primeira mensagem dele, e o link ainda não saiu.",
+    "",
+    `Ângulo deste toque: ${ANGULO_DO_RESGATE[toque as 1 | 2 | 3 | 4]}`,
+    "",
+    "Regras deste turno:",
+    "- Mande uma única mensagem, curta, que caiba em uma tela de WhatsApp.",
+    "- Não repita a pergunta de Situação já feita nesta conversa. Cada toque muda de ângulo.",
+    "- Não invente prazo, cupom que está acabando nem escassez. Urgência falsa é proibida.",
+    "- Não mande link nenhum: link só sai depois que ele responder e você chamar a tool.",
+    "- Só use as tools atualizar_lead, registrar_link_enviado, registrar_resultado_compra ou " +
+      "escalar_para_humano.",
   ].join("\n");
 }
 

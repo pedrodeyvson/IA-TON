@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CANAL_OFICIAL_TON, TAXAS, ANGULO_DO_TOQUE } from "./conhecimento.ts";
-import { montarSystemPrompt, instrucaoDoToque, montarMensagens } from "./prompt.ts";
+import { CANAL_OFICIAL_TON, TAXAS, ANGULO_DO_TOQUE, ANGULO_DO_RESGATE } from "./conhecimento.ts";
+import { montarSystemPrompt, instrucaoDoToque, instrucaoDoResgate, montarMensagens } from "./prompt.ts";
 
 const LEAD = { nome: "Ana", estagio: "qualificando", maquina_interesse: null };
 
@@ -108,6 +108,32 @@ test("toda instrução de toque proíbe urgência inventada e repetição", () =
 test("toque fora da cadência não gera instrução de toque", () => {
   assert.throws(() => instrucaoDoToque(5), /cadência|cadencia/i);
   assert.throws(() => instrucaoDoToque(0), /cadência|cadencia/i);
+});
+
+test("instrucaoDoResgate muda de ângulo a cada toque, cadência SEPARADA da régua oficial", () => {
+  const textos = [1, 2, 3, 4].map((n) => instrucaoDoResgate(n));
+  assert.equal(new Set(textos).size, 4);
+  assert.ok(textos[0].includes(ANGULO_DO_RESGATE[1]));
+  assert.ok(textos[3].includes(ANGULO_DO_RESGATE[4]));
+  // Não pode ser confundido com o texto da régua oficial.
+  for (const [n, texto] of textos.entries()) {
+    assert.equal(texto.includes(ANGULO_DO_TOQUE[(n + 1) as 1 | 2 | 3 | 4]), false);
+  }
+});
+
+test("toda instrução de resgate proíbe urgência inventada, repetição e link", () => {
+  for (const n of [1, 2, 3, 4]) {
+    const t = instrucaoDoResgate(n).toLowerCase();
+    assert.match(t, /não invente prazo|nao invente prazo/);
+    assert.match(t, /não repita|nao repita/);
+    assert.match(t, /não mande link|nao mande link/);
+    assert.match(t, /uma (única )?mensagem/);
+  }
+});
+
+test("toque de resgate fora da cadência (1..4) lança erro", () => {
+  assert.throws(() => instrucaoDoResgate(5), /cadência|cadencia/i);
+  assert.throws(() => instrucaoDoResgate(0), /cadência|cadencia/i);
 });
 
 test("montarMensagens põe o system na frente e o histórico na ordem", () => {

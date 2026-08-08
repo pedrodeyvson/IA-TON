@@ -91,6 +91,44 @@ export async function agendarToque(
   return { agendado: true };
 }
 
+/**
+ * Agenda um toque do RESGATE pré-link (spec §4) — mesmo mecanismo de
+ * `agendarToque` (checa `nao_perturbe` antes de escrever, falha fechada),
+ * mas grava em `resgate_toque` em vez de `followup_toque`: contador PRÓPRIO,
+ * porque o resgate é uma cadência SEPARADA da régua oficial e não pode
+ * consumir o crédito dela (`followup_toque` tem `check between 0 and 4` e é
+ * contado pela régua real).
+ *
+ * Diferente de `registrarToqueEnviado` (que só grava depois que a mensagem do
+ * toque JÁ saiu), aqui `resgate_toque` é gravado no momento do AGENDAMENTO —
+ * o resgate não tem a etapa de "toque enviado" separada da régua oficial;
+ * `resgate_toque` representa "o toque que está agendado ou acabou de sair",
+ * lido por quem monta a instrução do turno (`instrucaoDoResgate`) quando o
+ * worker disparar esta linha do tempo.
+ */
+export async function agendarResgate(
+  admin: any,
+  conversaId: string,
+  toque: number,
+  quandoIso: string,
+): Promise<ResultadoAgendamento> {
+  const motivoRecusa = await motivoParaRecusarAgendamento(admin, conversaId);
+  if (motivoRecusa) {
+    return { agendado: false, motivo: motivoRecusa };
+  }
+  await admin
+    .from("conversas")
+    .update({
+      resgate_toque: toque,
+      responder_em: quandoIso,
+      motivo_agendamento: "resgate",
+      tentativas: 0,
+      ultimo_erro: null,
+    })
+    .eq("id", conversaId);
+  return { agendado: true };
+}
+
 export async function registrarToqueEnviado(
   admin: any,
   conversaId: string,
@@ -122,11 +160,25 @@ export async function pausarCiclo(
     .eq("id", conversaId);
 }
 
-/** Zera o ciclo — usado quando um novo ciclo pode começar (link novo). */
+/**
+ * Zera o ciclo — usado quando um novo ciclo pode começar (link novo).
+ *
+ * Zera também o RESGATE (`resgate_toque`/`resgate_pausado_ate`): o link que
+ * acabou de sair encerra o resgate pré-link e transfere a conversa para a
+ * régua oficial — sem isso, um resgate que ficou no meio da cadência (ex.:
+ * toque 2 já agendado) sobreviveria ao link e poderia disparar depois, com o
+ * lead já em acompanhamento oficial.
+ */
 export async function reiniciarCiclo(admin: any, conversaId: string): Promise<void> {
   await admin
     .from("conversas")
-    .update({ followup_toque: 0, followup_enviado: false, ciclo_pausado_ate: null })
+    .update({
+      followup_toque: 0,
+      followup_enviado: false,
+      ciclo_pausado_ate: null,
+      resgate_toque: 0,
+      resgate_pausado_ate: null,
+    })
     .eq("id", conversaId);
 }
 

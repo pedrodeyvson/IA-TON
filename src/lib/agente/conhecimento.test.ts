@@ -8,6 +8,7 @@ import {
   REGRAS_ESCALACAO,
   CANAL_OFICIAL_TON,
   ANGULO_DO_TOQUE,
+  ANGULO_DO_RESGATE,
 } from "./conhecimento.ts";
 
 const RAIZ = new URL("../../../", import.meta.url);
@@ -102,6 +103,20 @@ test("os 4 ângulos da régua existem e são todos diferentes", () => {
   const angulos = [1, 2, 3, 4].map((n) => ANGULO_DO_TOQUE[n as 1 | 2 | 3 | 4]);
   assert.equal(new Set(angulos).size, 4, "repetir argumento é o que o material proíbe");
   for (const a of angulos) assert.ok(a.length > 30);
+});
+
+test("os 4 ângulos do resgate pré-link existem, são diferentes entre si e da régua oficial", () => {
+  const angulosResgate = [1, 2, 3, 4].map((n) => ANGULO_DO_RESGATE[n as 1 | 2 | 3 | 4]);
+  assert.equal(new Set(angulosResgate).size, 4, "repetir argumento é o pior padrão medido (27,8%)");
+  for (const a of angulosResgate) assert.ok(a.length > 30);
+
+  const angulosToque = [1, 2, 3, 4].map((n) => ANGULO_DO_TOQUE[n as 1 | 2 | 3 | 4]);
+  for (const a of angulosResgate) assert.equal(angulosToque.includes(a), false);
+});
+
+test("o toque 1 do resgate pede pergunta FECHADA, nunca repete a pergunta aberta", () => {
+  assert.match(ANGULO_DO_RESGATE[1].toLowerCase(), /fechada/);
+  assert.match(ANGULO_DO_RESGATE[1].toLowerCase(), /não repita|nao repita/);
 });
 
 test("o D150 não é oferecido pelo nome (não consta no material)", () => {

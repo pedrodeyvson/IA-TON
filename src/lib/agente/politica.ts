@@ -22,7 +22,7 @@ export type MotivoRecusa =
 
 export type ContextoTurno = {
   agenteAtivo: boolean;
-  motivo: "resposta" | "followup";
+  motivo: "resposta" | "followup" | "resgate";
   pausada: boolean;
   precisaAtencao: boolean;
   /** leads.nao_perturbe — o lead pediu para parar. É definitivo. */
@@ -69,6 +69,19 @@ export function decidirTurno(ctx: ContextoTurno): Decisao {
     }
     // O toque existe justamente porque o lead NÃO respondeu: aqui não se exige
     // mensagem dele.
+    return { responder: true };
+  }
+
+  if (ctx.motivo === "resgate") {
+    // O resgate pré-link não tem teto fixo nem pausa (decisão §9 da spec: o
+    // limite de 4 toques é governado por sinal, não por norma, e cai fora
+    // depois do link sair). Quem impede um 5º toque é `planejarProximoResgate`
+    // (para de agendar depois do 4º) e o `check between 0 and 4` da coluna
+    // `resgate_toque` — não uma trava aqui, que bloquearia o próprio 4º toque
+    // (a etapa "toque enviado" do resgate é a mesma do agendamento, ver
+    // `agendarResgate`). Mesmo raciocínio do followup: o toque existe porque
+    // o lead NÃO respondeu, então não se exige que a última mensagem seja
+    // dele.
     return { responder: true };
   }
 
