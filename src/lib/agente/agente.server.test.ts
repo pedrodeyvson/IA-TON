@@ -135,6 +135,47 @@ test("tool call é executada e o modelo é chamado de novo com o resultado", asy
   assert.ok(chamadas[1].some((m: any) => m.role === "tool"), "o resultado entra como role:tool");
 });
 
+// Achado da revisão final da branch: a tool registrar_link_enviado agenda o
+// toque 1 direto no banco (agendarToque), mesmo quando ctx.motivo === "resposta"
+// (o lead pediu o link no meio de uma conversa normal, não numa automação de
+// régua). Antes desta correção, o turno devolvia { status: "respondeu", texto }
+// sem reagendou, e o worker (loop.server.ts) via reagendou ausente e chamava
+// limparAgendamento — apagando o responder_em/motivo_agendamento que a tool
+// tinha acabado de gravar. A régua de follow-up nunca disparava pela primeira
+// vez neste fluxo, que é o caminho principal (não uma automação).
+test("link enviado no meio de uma conversa normal reagenda o toque 1 sem o worker apagar", async () => {
+  process.env.TON_REFERRER = "CEA4255F-0783-4EAD-AA55-48C682BA8FA7";
+  const admin = adminDeConversa();
+  const chamadas: any[][] = [];
+
+  const r = await executarTurno(admin, CTX, {
+    chamar: async (mensagens: any[]) => {
+      chamadas.push(mensagens);
+      if (chamadas.length === 1) {
+        return {
+          texto: null,
+          toolCalls: [{ id: "c1", nome: "registrar_link_enviado", argumentos: { produto: "catalogo" } }],
+        };
+      }
+      return { texto: "Segue o link, qualquer coisa me chama", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+
+  assert.equal(r.status, "respondeu");
+  assert.equal(
+    r.reagendou,
+    true,
+    "a tool já gravou o toque 1 no banco; sem reagendou o worker apagaria esse agendamento",
+  );
+
+  const updates = admin.chamadas.filter((c) => c.tabela === "conversas" && c.operacao === "update");
+  assert.ok(
+    updates.some((u) => u.payload.motivo_agendamento === "followup"),
+    "registrar_link_enviado tem que ter agendado o toque 1",
+  );
+});
+
 test("escalação encerra o turno sem enviar mensagem", async () => {
   const admin = adminDeConversa();
   let enviou = false;

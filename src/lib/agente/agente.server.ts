@@ -105,6 +105,12 @@ export async function executarTurno(
       mensagens.push({ role: "system", content: instrucaoDoToque(toque) });
     }
 
+    // Sinaliza se alguma tool, em qualquer iteração do turno, já escreveu um
+    // agendamento no banco (ex.: registrar_link_enviado chamando agendarToque
+    // fora de um toque de régua). Sem isso, o worker limpa o que a tool
+    // acabou de agendar — ver o achado que motivou este campo.
+    let alguemAgendou = false;
+
     for (let iteracao = 0; iteracao <= MAX_ITERACOES_TOOL; iteracao++) {
       const resposta = await chamar(mensagens, DEFINICOES_TOOLS);
 
@@ -127,6 +133,7 @@ export async function executarTurno(
           });
           mensagens.push({ role: "tool", tool_call_id: chamada.id, content: r.conteudo });
           if (r.escalou) escalou = true;
+          if (r.agendou) alguemAgendou = true;
         }
 
         // Escalou: a conversa passa a ser respondida pelo Pedro pelo inbox. A
@@ -153,7 +160,17 @@ export async function executarTurno(
       );
       if (!envio.ok) return { status: "erro", motivo: envio.erro };
 
-      if (ctx.motivo !== "followup") return { status: "respondeu", texto };
+      if (ctx.motivo !== "followup") {
+        // Fora do caminho de followup, quem agenda de verdade é fecharToque
+        // (motivo === "followup"). Mas se uma tool já agendou um toque nesta
+        // mesma iteração — ex.: registrar_link_enviado no meio de uma
+        // conversa normal —, o agendamento já está escrito no banco e o
+        // worker não pode limpá-lo. reagendou:true é o único jeito de avisar
+        // o worker disso fora do caminho de followup.
+        return alguemAgendou
+          ? { status: "respondeu", texto, reagendou: true }
+          : { status: "respondeu", texto };
+      }
 
       return { ...(await fecharToque(admin, ctx, lead, toque, agoraMs)), texto };
     }

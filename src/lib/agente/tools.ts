@@ -106,6 +106,13 @@ export type ResultadoTool = {
   conteudo: string;
   /** true encerra o turno: o agente não responde mais nada. */
   escalou?: boolean;
+  /**
+   * true quando esta tool já escreveu um agendamento de toque no banco
+   * (agendarToque). O turno usa esse sinal para saber que não pode deixar o
+   * worker limpar responder_em, mesmo fora do caminho de followup — sem ele,
+   * o toque 1 agendado aqui é apagado pelo worker milissegundos depois.
+   */
+  agendou?: boolean;
 };
 
 export type ContextoTool = { leadId: string; conversaId: string };
@@ -214,6 +221,7 @@ async function executarRegistrarLink(
   // segurança — não dá para distinguir "parou" de "não sei se parou".
   const agora = Date.now();
   const plano = planejarProximoToque(0, agora, agora);
+  let agendou = false;
   if (plano.tipo === "toque") {
     const agendamento = await agendarToque(admin, ctx.conversaId, plano.quandoIso);
     if (!agendamento.agendado) {
@@ -230,6 +238,7 @@ async function executarRegistrarLink(
         escalou: true,
       };
     }
+    agendou = true;
   }
 
   await moverEstagio(admin, ctx.leadId, "link_enviado", { origem: "agente", produto });
@@ -238,7 +247,7 @@ async function executarRegistrarLink(
   // herdada de um ciclo anterior.
   await reiniciarCiclo(admin, ctx.conversaId);
 
-  return { conteudo: `Link do ${rotulo} para enviar ao cliente: ${link.url}` };
+  return { conteudo: `Link do ${rotulo} para enviar ao cliente: ${link.url}`, agendou };
 }
 
 async function executarResultadoCompra(
