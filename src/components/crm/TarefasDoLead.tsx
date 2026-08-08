@@ -7,6 +7,16 @@ import {
   listarTarefasDoCrm,
 } from "@/lib/crm/crm.functions";
 
+// Espelha o .max(200) do validator de `criarTarefaDoCrm`
+// (src/lib/crm/crm.functions.ts:245). Sem isso, colar um título longo é
+// rejeitado no servidor sem nada aparecer na tela.
+const LIMITE_TITULO = 200;
+
+function mensagemDeErro(erro: unknown): string {
+  if (erro instanceof Error) return erro.message;
+  return String(erro);
+}
+
 export function TarefasDoLead({ leadId }: { leadId: string }) {
   const clienteQuery = useQueryClient();
   const [titulo, setTitulo] = useState("");
@@ -19,6 +29,9 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
     enabled: Boolean(leadId),
   });
 
+  // Invalida a chave-prefixo ["tarefas"] de propósito: alcança a lista deste
+  // lead e a de qualquer outra tela. A escrita otimista abaixo, ao contrário,
+  // precisa da chave EXATA ["tarefas", leadId] — é ela que esta query lê.
   function recarregar() {
     clienteQuery.invalidateQueries({ queryKey: ["tarefas"] });
   }
@@ -33,7 +46,23 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
   const alternar = useMutation({
     mutationFn: ({ tarefaId, concluida }: { tarefaId: string; concluida: boolean }) =>
       alternarTarefaDoCrm({ data: { tarefaId, concluida } }),
-    onSuccess: recarregar,
+    // O checkbox é controlado por `tarefa.concluida`. Sem gravar o valor novo
+    // no cache antes da requisição, o React reconcilia o input com o valor
+    // antigo ainda no ciclo do evento e o marcador volta sozinho até a
+    // resposta chegar. Escrevendo aqui, o valor que controla o input já é o
+    // que o operador acabou de escolher.
+    onMutate: async ({ tarefaId, concluida }) => {
+      await clienteQuery.cancelQueries({ queryKey: ["tarefas", leadId] });
+      const anterior = clienteQuery.getQueryData<any[]>(["tarefas", leadId]);
+      clienteQuery.setQueryData<any[]>(["tarefas", leadId], (atual) =>
+        atual?.map((tarefa: any) => (tarefa.id === tarefaId ? { ...tarefa, concluida } : tarefa)),
+      );
+      return { anterior };
+    },
+    onError: (_erro, _variaveis, contexto) => {
+      clienteQuery.setQueryData<any[]>(["tarefas", leadId], contexto?.anterior);
+    },
+    onSettled: recarregar,
   });
   const excluir = useMutation({
     mutationFn: (tarefaId: string) => excluirTarefaDoCrm({ data: { tarefaId } }),
@@ -44,9 +73,19 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
   // título continua na tela — um segundo clique criaria a mesma tarefa de novo.
   const podeCriar = Boolean(titulo.trim()) && !criar.isPending;
 
+  // Ponto único de exibição das três mutations de tarefa; a mais recente ganha.
+  const erroDasTarefas = [criar, alternar, excluir]
+    .filter((mutation) => mutation.error)
+    .sort((a, b) => b.submittedAt - a.submittedAt)[0]?.error;
+
   return (
     <div className="flex flex-col gap-1">
       <strong>Tarefas</strong>
+      {erroDasTarefas && (
+        <p role="alert" className="rounded p-2" style={{ background: "var(--color-alerta)" }}>
+          Não salvou: {mensagemDeErro(erroDasTarefas)}
+        </p>
+      )}
       {tarefas.map((tarefa: any) => (
         <div key={tarefa.id} className="flex items-center gap-2">
           <input
@@ -66,6 +105,7 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
         <input
           value={titulo}
           onChange={(evento) => setTitulo(evento.target.value)}
+          maxLength={LIMITE_TITULO}
           placeholder="Nova tarefa"
           className="flex-1 rounded bg-[var(--color-painel)] p-1"
         />

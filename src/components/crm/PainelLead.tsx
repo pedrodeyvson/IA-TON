@@ -12,13 +12,26 @@ import {
 import { rotuloDeEstagio } from "./rotulos";
 import { TarefasDoLead } from "./TarefasDoLead";
 
+// Limites espelhados dos validators Zod em src/lib/crm/crm.functions.ts:
+// `nome` e `maquina_interesse` são .max(120) (linhas 187-188) e a nota é
+// .max(2000) (linha 204). Sem isso o Zod rejeita no servidor e o operador
+// não vê nada — o texto excedente some sem aviso.
+const LIMITE_NOME = 120;
+const LIMITE_MAQUINA = 120;
+const LIMITE_NOTA = 2000;
+
+function mensagemDeErro(erro: unknown): string {
+  if (erro instanceof Error) return erro.message;
+  return String(erro);
+}
+
 export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId: string }) {
   const clienteQuery = useQueryClient();
   const [nota, setNota] = useState("");
 
   // Mesma queryKey e mesma server function da rota inbox.$conversaId — o
-  // painel e o cabeçalho leem o mesmo cache, então invalidar aqui atualiza
-  // os dois.
+  // painel e o cabeçalho leem o mesmo cache, então invalidar (ou escrever
+  // otimisticamente) aqui atualiza os dois.
   const { data: lead } = useQuery({
     queryKey: ["lead", leadId],
     queryFn: () => obterLeadDoCrm({ data: { leadId } }),
@@ -32,7 +45,24 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
 
   const mudarEstagio = useMutation({
     mutationFn: (estagio: string) => moverEstagioDoLead({ data: { leadId, estagio } }),
-    onSuccess: recarregar,
+    // O <select> é controlado por `lead.estagio`. Sem escrever o valor novo
+    // no cache ANTES da ida ao servidor, o React reconcilia o elemento com o
+    // valor antigo assim que o evento de change termina e devolve o DOM ao
+    // estágio anterior — o operador vê o dropdown "recusar" a escolha até a
+    // resposta chegar. Escrevendo aqui, a fonte da verdade do componente já
+    // é o valor novo no próprio ciclo do evento.
+    onMutate: async (estagio: string) => {
+      await clienteQuery.cancelQueries({ queryKey: ["lead", leadId] });
+      const anterior = clienteQuery.getQueryData<any>(["lead", leadId]);
+      clienteQuery.setQueryData<any>(["lead", leadId], (atual: any) =>
+        atual ? { ...atual, estagio } : atual,
+      );
+      return { anterior };
+    },
+    onError: (_erro, _estagio, contexto) => {
+      clienteQuery.setQueryData<any>(["lead", leadId], contexto?.anterior);
+    },
+    onSettled: recarregar,
   });
   const salvarCampo = useMutation({
     mutationFn: (campos: Record<string, unknown>) => atualizarDadosDoLead({ data: { leadId, campos } }),
@@ -46,13 +76,27 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
     },
   });
   const resolver = useMutation({
-    mutationFn: () => resolverAtencao({ data: { leadId } }),
+    // resolverAtencao devolve { ok: false, erro } em vez de lançar — sem este
+    // throw a mutation "tem sucesso" com a atenção intacta e a linha de erro
+    // abaixo nunca apareceria.
+    mutationFn: async () => {
+      const resultado = await resolverAtencao({ data: { leadId } });
+      if (!resultado.ok) throw new Error(resultado.erro ?? "falha ao resolver a atenção");
+      return resultado;
+    },
     onSuccess: recarregar,
   });
   const silenciar = useMutation({
     mutationFn: () => alternarNaoPerturbe({ data: { leadId, conversaId, motivo: "marcado no inbox" } }),
     onSuccess: recarregar,
   });
+
+  // Um único ponto de exibição para as cinco mutations do painel. A mais
+  // recente ganha: o `submittedAt` de cada mutation é o instante do
+  // `mutate()`, então a última ação do operador é a que ele vê comentada.
+  const erroDoPainel = [mudarEstagio, salvarCampo, salvarNota, resolver, silenciar]
+    .filter((mutation) => mutation.error)
+    .sort((a, b) => b.submittedAt - a.submittedAt)[0]?.error;
 
   if (!lead) {
     return <aside className="border-l border-[var(--color-borda)] p-4">Carregando…</aside>;
@@ -69,12 +113,19 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
         </div>
       )}
 
+      {erroDoPainel && (
+        <p role="alert" className="rounded p-2" style={{ background: "var(--color-alerta)" }}>
+          Não salvou: {mensagemDeErro(erroDoPainel)}
+        </p>
+      )}
+
       <label className="flex flex-col gap-1">
         Estágio
         <select
           value={lead.estagio ?? "novo"}
           onChange={(evento) => mudarEstagio.mutate(evento.target.value)}
-          className="rounded bg-[var(--color-painel)] p-1"
+          disabled={mudarEstagio.isPending}
+          className="rounded bg-[var(--color-painel)] p-1 disabled:opacity-50"
         >
           {ESTAGIOS.map((estagio) => (
             <option key={estagio} value={estagio}>
@@ -86,12 +137,19 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
 
       {/* defaultValue + onBlur de propósito: campo não-controlado não é
           reescrito quando o recarregar() troca o objeto `lead`, então o que o
-          operador está digitando não some no meio da digitação. */}
+          operador está digitando não some no meio da digitação. Como o React
+          não reescreve o campo, o .trim() é aplicado também ao DOM — senão o
+          que fica na tela difere do que foi gravado. */}
       <label className="flex flex-col gap-1">
         Nome
         <input
           defaultValue={lead.nome ?? ""}
-          onBlur={(evento) => salvarCampo.mutate({ nome: evento.target.value || null })}
+          maxLength={LIMITE_NOME}
+          onBlur={(evento) => {
+            const valor = evento.target.value.trim();
+            evento.target.value = valor;
+            salvarCampo.mutate({ nome: valor || null });
+          }}
           className="rounded bg-[var(--color-painel)] p-1"
         />
       </label>
@@ -100,7 +158,12 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
         Máquina de interesse
         <input
           defaultValue={lead.maquina_interesse ?? ""}
-          onBlur={(evento) => salvarCampo.mutate({ maquina_interesse: evento.target.value || null })}
+          maxLength={LIMITE_MAQUINA}
+          onBlur={(evento) => {
+            const valor = evento.target.value.trim();
+            evento.target.value = valor;
+            salvarCampo.mutate({ maquina_interesse: valor || null });
+          }}
           className="rounded bg-[var(--color-painel)] p-1"
         />
       </label>
@@ -110,6 +173,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
         <input
           type="number"
           step="0.01"
+          min="0"
           defaultValue={lead.comissao_estimada ?? ""}
           onBlur={(evento) =>
             salvarCampo.mutate({
@@ -133,6 +197,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
         <textarea
           value={nota}
           onChange={(evento) => setNota(evento.target.value)}
+          maxLength={LIMITE_NOTA}
           rows={2}
           className="rounded bg-[var(--color-painel)] p-1"
         />
