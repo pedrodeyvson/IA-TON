@@ -133,6 +133,40 @@ test("agendarResgate falha fechada: erro ao checar opt-out também recusa agenda
   assert.equal(payloadUpdate(admin), undefined, "erro na checagem não pode liberar o toque de resgate");
 });
 
+// ===== Regressão do incidente de 08/08/2026 (rajada de 17 mensagens) =====
+// O supabase-js resolve com `{ data, error }` em vez de rejeitar. Ignorar o
+// `error` do UPDATE fazia estas funções MENTIREM que agendaram: o turno
+// devolvia `reagendou: true`, o worker preservava um `responder_em` já
+// vencido, e a mesma conversa voltava na varredura a cada 3 segundos. A causa
+// concreta foi o check de `motivo_agendamento` não conhecer 'resgate'
+// (migration 20260809d), mas o buraco vale para qualquer recusa do banco.
+
+function adminQueRecusaOUpdate() {
+  return criarAdminFake({
+    "conversas.update": () => ({
+      data: null,
+      error: { message: 'new row violates check constraint "conversas_motivo_agendamento_check"' },
+    }),
+  });
+}
+
+test("agendarResgate NÃO diz que agendou quando o banco recusa o UPDATE", async () => {
+  const resultado = await agendarResgate(
+    adminQueRecusaOUpdate(), "C1", 1, "2026-08-10T19:00:00.000Z",
+  );
+  assert.deepEqual(resultado, { agendado: false, motivo: "erro_ao_agendar" });
+});
+
+test("agendarToque NÃO diz que agendou quando o banco recusa o UPDATE", async () => {
+  const resultado = await agendarToque(adminQueRecusaOUpdate(), "C1", "2026-08-10T12:00:00.000Z");
+  assert.deepEqual(resultado, { agendado: false, motivo: "erro_ao_agendar" });
+});
+
+test("agendarResposta NÃO diz que agendou quando o banco recusa o UPDATE", async () => {
+  const resultado = await agendarResposta(adminQueRecusaOUpdate(), "C1", 8000);
+  assert.deepEqual(resultado, { agendado: false, motivo: "erro_ao_agendar" });
+});
+
 // Prova o caso "lead responde antes do toque agendado": agendarResposta não
 // olha para o motivo_agendamento atual da conversa, só sobrescreve — é assim
 // que uma resposta nova cancela um resgate pendente sem nenhum código

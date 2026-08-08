@@ -35,6 +35,35 @@ async function liberarOrfaos(admin: any): Promise<void> {
   }
 }
 
+/**
+ * Confere se o turno REALMENTE empurrou `responder_em` para o futuro.
+ *
+ * `reagendou: true` é a única coisa que impede o worker de limpar o
+ * agendamento — e é palavra do turno, não fato verificado. Quando essa palavra
+ * está errada, o `responder_em` antigo (já vencido) continua lá e a MESMA
+ * conversa volta na varredura 3 segundos depois, para sempre, mandando uma
+ * mensagem de verdade por volta. Foi o incidente de 08/08/2026: 17 mensagens
+ * da IA num minuto para um cliente real, a partir de uma única mensagem de
+ * entrada, porque `agendarResgate` reportava sucesso num UPDATE que o banco
+ * recusava (check de `motivo_agendamento` sem 'resgate' — ver 20260809d).
+ *
+ * A causa daquele caso foi corrigida na origem; esta checagem existe para que
+ * a PRÓXIMA falha de agendamento — qualquer que seja — custe uma mensagem, não
+ * uma rajada. Falha de leitura devolve `true` (confia no turno): apagar uma
+ * régua legítima por causa de um select que não respondeu é pior, e o pior
+ * caso desse lado é um tick a mais, porque a leitura seguinte já corrige.
+ */
+async function agendamentoAvancou(admin: any, conversaId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from("conversas")
+    .select("responder_em")
+    .eq("id", conversaId)
+    .maybeSingle();
+  if (error) return true;
+  const quando = Date.parse(data?.responder_em ?? "");
+  return Number.isFinite(quando) && quando > Date.now();
+}
+
 export async function processarPendentes(admin: any, deps: DepsWorker = {}): Promise<number> {
   await liberarOrfaos(admin);
 
@@ -80,10 +109,17 @@ export async function processarPendentes(admin: any, deps: DepsWorker = {}): Pro
         resultado.motivo ?? "erro",
       );
       console.warn(`[worker] turno falhou na conversa ${conversa.id}: ${resultado.motivo}`);
-    } else if (resultado.reagendou) {
-      // O turno já deixou o próximo toque marcado: aqui só o lock sai.
+    } else if (resultado.reagendou && (await agendamentoAvancou(admin, conversa.id))) {
+      // O turno já deixou o próximo toque marcado — e o banco confirma: aqui
+      // só o lock sai.
       await soltarLock(admin, conversa.id);
     } else {
+      if (resultado.reagendou) {
+        console.warn(
+          `[worker] conversa ${conversa.id}: o turno disse que reagendou, mas responder_em ` +
+            "não avançou para o futuro — limpando o agendamento para não repescar em rajada",
+        );
+      }
       if (resultado.status === "pulado") {
         console.log(`[worker] conversa ${conversa.id} pulada: ${resultado.motivo}`);
       }

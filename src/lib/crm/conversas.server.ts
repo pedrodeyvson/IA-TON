@@ -16,8 +16,42 @@ export const MAX_TENTATIVAS = 3;
 
 export type ResultadoAgendamento = {
   agendado: boolean;
-  motivo?: "nao_perturbe" | "bloqueio_suspeito" | "erro_ao_verificar_optout";
+  motivo?:
+    | "nao_perturbe"
+    | "bloqueio_suspeito"
+    | "erro_ao_verificar_optout"
+    | "erro_ao_agendar";
 };
+
+/**
+ * Escreve o agendamento e só devolve `{ agendado: true }` se o banco aceitou.
+ *
+ * O supabase-js resolve com `{ data, error }` em vez de rejeitar: ignorar o
+ * `error` faz esta função MENTIR que agendou. Foi exatamente isso que
+ * transformou uma migration esquecida (o check de `motivo_agendamento` não
+ * conhecia 'resgate' — ver 20260809d) numa rajada de 17 mensagens em 60
+ * segundos para um cliente real em 08/08/2026: o UPDATE era recusado, o turno
+ * devolvia `reagendou: true` sobre um `responder_em` que continuava no
+ * passado, e o worker repescava a mesma conversa a cada 3 segundos.
+ *
+ * `erro_ao_agendar` é tratado pelos chamadores como recusa (fail-closed), do
+ * mesmo jeito que `erro_ao_verificar_optout`: sem saber se o próximo toque
+ * ficou marcado, o certo é chamar o Pedro, não seguir em frente.
+ */
+async function escreverAgendamento(
+  admin: any,
+  conversaId: string,
+  campos: Record<string, unknown>,
+): Promise<ResultadoAgendamento> {
+  const { error } = await admin.from("conversas").update(campos).eq("id", conversaId);
+  if (error) {
+    console.warn(
+      `[conversas] agendamento recusado pelo banco na conversa ${conversaId}: ${error.message}`,
+    );
+    return { agendado: false, motivo: "erro_ao_agendar" };
+  }
+  return { agendado: true };
+}
 
 /**
  * A instância de WhatsApp é compartilhada com outro projeto do dono: um
@@ -62,18 +96,14 @@ export async function agendarResposta(
   if (motivoRecusa) {
     return { agendado: false, motivo: motivoRecusa };
   }
-  await admin
-    .from("conversas")
-    .update({
-      responder_em: new Date(agoraMs + atrasoMs).toISOString(),
-      motivo_agendamento: "resposta",
-      // Mensagem nova reabre o crédito: uma falha de ontem não pode condenar a
-      // resposta de hoje.
-      tentativas: 0,
-      ultimo_erro: null,
-    })
-    .eq("id", conversaId);
-  return { agendado: true };
+  return escreverAgendamento(admin, conversaId, {
+    responder_em: new Date(agoraMs + atrasoMs).toISOString(),
+    motivo_agendamento: "resposta",
+    // Mensagem nova reabre o crédito: uma falha de ontem não pode condenar a
+    // resposta de hoje.
+    tentativas: 0,
+    ultimo_erro: null,
+  });
 }
 
 /** Agenda um toque da régua no instante exato que `planejarProximoToque` devolveu. */
@@ -86,16 +116,12 @@ export async function agendarToque(
   if (motivoRecusa) {
     return { agendado: false, motivo: motivoRecusa };
   }
-  await admin
-    .from("conversas")
-    .update({
-      responder_em: quandoIso,
-      motivo_agendamento: "followup",
-      tentativas: 0,
-      ultimo_erro: null,
-    })
-    .eq("id", conversaId);
-  return { agendado: true };
+  return escreverAgendamento(admin, conversaId, {
+    responder_em: quandoIso,
+    motivo_agendamento: "followup",
+    tentativas: 0,
+    ultimo_erro: null,
+  });
 }
 
 /**
@@ -123,17 +149,13 @@ export async function agendarResgate(
   if (motivoRecusa) {
     return { agendado: false, motivo: motivoRecusa };
   }
-  await admin
-    .from("conversas")
-    .update({
-      resgate_toque: toque,
-      responder_em: quandoIso,
-      motivo_agendamento: "resgate",
-      tentativas: 0,
-      ultimo_erro: null,
-    })
-    .eq("id", conversaId);
-  return { agendado: true };
+  return escreverAgendamento(admin, conversaId, {
+    resgate_toque: toque,
+    responder_em: quandoIso,
+    motivo_agendamento: "resgate",
+    tentativas: 0,
+    ultimo_erro: null,
+  });
 }
 
 export async function registrarToqueEnviado(

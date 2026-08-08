@@ -7,10 +7,28 @@ import { processarPendentes } from "./loop.server.ts";
  * A varredura de órfãos e a de pendentes batem na mesma tabela; o que as separa
  * é o filtro. O fake registra os filtros, então dá para responder cada uma.
  */
-function adminComPendente(motivo: "resposta" | "followup") {
+/**
+ * `responderEmApos`: o que a conferência pós-turno de `reagendou` vai encontrar
+ * em `responder_em`. Padrão = amanhã (o caso normal: o turno agendou de
+ * verdade). Passe uma data no passado para simular um turno que MENTIU que
+ * reagendou.
+ */
+function adminComPendente(motivo: "resposta" | "followup", responderEmApos?: string | null) {
   return criarAdminFake({
     "conversas.select": (chamada: any) => {
       const colunas = chamada.filtros.map(([coluna]: [string, unknown]) => coluna);
+      // A conferência de `agendamentoAvancou` é a única leitura filtrada só por id.
+      if (colunas.length === 1 && colunas[0] === "id") {
+        return {
+          data: {
+            responder_em:
+              responderEmApos === undefined
+                ? new Date(Date.now() + 86_400_000).toISOString()
+                : responderEmApos,
+          },
+          error: null,
+        };
+      }
       if (!colunas.includes("responder_em")) return { data: [], error: null }; // órfãos
       return {
         data: [{ id: "C1", lead_id: "L1", motivo_agendamento: motivo, tentativas: 0 }],
@@ -52,6 +70,35 @@ test("NÃO apaga o toque que o turno acabou de agendar", async () => {
   assert.equal(limpezas.length, 0, "limparAgendamento aqui mataria a régua");
   // Mas o lock TEM que sair, senão a conversa fica presa até o varredor passar.
   assert.ok(updatesDeConversa(admin).some((p: any) => p.processando_em === null));
+});
+
+// Regressão do incidente de 08/08/2026: 17 mensagens da IA em 60 segundos para
+// um cliente real, a partir de UMA mensagem de entrada. `agendarResgate`
+// reportava `{ agendado: true }` num UPDATE que o banco recusava (o check de
+// `motivo_agendamento` não conhecia 'resgate'), o turno devolvia
+// `reagendou: true`, o worker soltava só o lock — e o `responder_em` vencido
+// continuava lá, devolvendo a mesma conversa na varredura 3 segundos depois.
+test("reagendou que não avançou responder_em não vira rajada: limpa o agendamento", async () => {
+  const admin = adminComPendente("resposta", new Date(Date.now() - 60_000).toISOString());
+
+  await processarPendentes(admin, {
+    turno: async () => ({ status: "respondeu", reagendou: true }),
+  });
+
+  assert.ok(
+    updatesDeConversa(admin).some((p: any) => p.responder_em === null),
+    "agendamento que não andou para o futuro tem que sair da fila",
+  );
+});
+
+test("reagendou sem responder_em nenhum também sai da fila", async () => {
+  const admin = adminComPendente("followup", null);
+
+  await processarPendentes(admin, {
+    turno: async () => ({ status: "respondeu", reagendou: true }),
+  });
+
+  assert.ok(updatesDeConversa(admin).some((p: any) => p.responder_em === null));
 });
 
 test("turno pulado não é falha: limpa o agendamento e não conta tentativa", async () => {
