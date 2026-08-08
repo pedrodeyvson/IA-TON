@@ -14,7 +14,10 @@ export const MS_POR_TENTATIVA = 30_000;
 /** Depois de 3 falhas seguidas o agente desiste e o lead vira problema do Pedro. */
 export const MAX_TENTATIVAS = 3;
 
-export type ResultadoAgendamento = { agendado: boolean; motivo?: "nao_perturbe" };
+export type ResultadoAgendamento = {
+  agendado: boolean;
+  motivo?: "nao_perturbe" | "erro_ao_verificar_optout";
+};
 
 /**
  * A instância de WhatsApp é compartilhada com outro projeto do dono: um
@@ -22,14 +25,24 @@ export type ResultadoAgendamento = { agendado: boolean; motivo?: "nao_perturbe" 
  * `agendarResposta`/`agendarToque` reabriria follow-up para quem pediu para
  * parar. Por isso a checagem mora aqui dentro, não só no lado de quem chama —
  * defesa em profundidade, não depende de disciplina externa.
+ *
+ * Falha fechada: se a própria consulta falhar (rede, Postgres), a resposta é
+ * "recusar", não "assumir que está tudo bem" — perder um follow-up legítimo
+ * por um erro transitório é um custo aceitável; mandar mensagem para quem
+ * pediu para parar não é.
  */
-async function leadOptouPorNaoPerturbe(admin: any, conversaId: string): Promise<boolean> {
-  const { data } = await admin
+async function motivoParaRecusarAgendamento(
+  admin: any,
+  conversaId: string,
+): Promise<"nao_perturbe" | "erro_ao_verificar_optout" | null> {
+  const { data, error } = await admin
     .from("conversas")
     .select("id, leads(nao_perturbe)")
     .eq("id", conversaId)
     .maybeSingle();
-  return data?.leads?.nao_perturbe === true;
+  if (error) return "erro_ao_verificar_optout";
+  if (data?.leads?.nao_perturbe === true) return "nao_perturbe";
+  return null;
 }
 
 export async function agendarResposta(
@@ -38,8 +51,9 @@ export async function agendarResposta(
   atrasoMs: number,
   agoraMs: number = Date.now(),
 ): Promise<ResultadoAgendamento> {
-  if (await leadOptouPorNaoPerturbe(admin, conversaId)) {
-    return { agendado: false, motivo: "nao_perturbe" };
+  const motivoRecusa = await motivoParaRecusarAgendamento(admin, conversaId);
+  if (motivoRecusa) {
+    return { agendado: false, motivo: motivoRecusa };
   }
   await admin
     .from("conversas")
@@ -61,8 +75,9 @@ export async function agendarToque(
   conversaId: string,
   quandoIso: string,
 ): Promise<ResultadoAgendamento> {
-  if (await leadOptouPorNaoPerturbe(admin, conversaId)) {
-    return { agendado: false, motivo: "nao_perturbe" };
+  const motivoRecusa = await motivoParaRecusarAgendamento(admin, conversaId);
+  if (motivoRecusa) {
+    return { agendado: false, motivo: motivoRecusa };
   }
   await admin
     .from("conversas")

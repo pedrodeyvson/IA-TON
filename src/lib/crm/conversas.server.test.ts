@@ -67,6 +67,26 @@ test("agendarToque não agenda quando o lead está em nao_perturbe", async () =>
   assert.equal(payloadUpdate(admin), undefined, "nenhum toque pode ser escrito para quem optou por sair");
 });
 
+test("agendarResposta falha fechada: erro ao checar opt-out também recusa agendar", async () => {
+  const admin = criarAdminFake({
+    "conversas.select": () => ({ data: null, error: { message: "conexão com o banco caiu" } }),
+  });
+  const resultado = await agendarResposta(admin, "C1", 8000);
+
+  assert.deepEqual(resultado, { agendado: false, motivo: "erro_ao_verificar_optout" });
+  assert.equal(payloadUpdate(admin), undefined, "erro na checagem não pode liberar o agendamento");
+});
+
+test("agendarToque falha fechada: erro ao checar opt-out também recusa agendar", async () => {
+  const admin = criarAdminFake({
+    "conversas.select": () => ({ data: null, error: { message: "conexão com o banco caiu" } }),
+  });
+  const resultado = await agendarToque(admin, "C1", "2026-08-10T12:00:00.000Z");
+
+  assert.deepEqual(resultado, { agendado: false, motivo: "erro_ao_verificar_optout" });
+  assert.equal(payloadUpdate(admin), undefined, "erro na checagem não pode liberar o toque");
+});
+
 test("registrarToqueEnviado guarda em que toque o ciclo está", async () => {
   const admin = criarAdminFake();
   await registrarToqueEnviado(admin, "C1", 3);
