@@ -37,12 +37,16 @@ export async function responderComoHumano(
   const texto = params.texto?.trim();
   if (!texto) return { ok: false, erro: "texto vazio" };
 
-  const { data: lead } = await admin
+  const { data: lead, error: erroLead } = await admin
     .from("leads")
     .select("id, telefone")
     .eq("id", params.leadId)
     .maybeSingle();
 
+  // Distinguir falha de banco de lead inexistente: o supabase-js resolve com
+  // { data, error } em vez de rejeitar, então ignorar o error faria uma queda
+  // de conexão chegar ao operador como "lead não encontrado".
+  if (erroLead) return { ok: false, erro: erroLead.message };
   if (!lead) return { ok: false, erro: "lead não encontrado" };
   if (!lead.telefone) {
     // Lead que chegou só com @lid: não há para onde enviar. A tela desabilita
