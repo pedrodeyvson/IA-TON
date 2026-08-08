@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
+import { Route as AppInboxConversaIdRouteImport } from './routes/_app/inbox.$conversaId'
 import { Route as ApiPublicUazapiRouteImport } from './routes/api/public/uazapi'
 
 const IndexRoute = IndexRouteImport.update({
@@ -34,6 +35,11 @@ const AppInboxRoute = AppInboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxConversaIdRoute = AppInboxConversaIdRouteImport.update({
+  id: '/$conversaId',
+  path: '/$conversaId',
+  getParentRoute: () => AppInboxRoute,
+} as any)
 const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
   id: '/api/public/uazapi',
   path: '/api/public/uazapi',
@@ -43,13 +49,15 @@ const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/inbox': typeof AppInboxRoute
+  '/inbox': typeof AppInboxRouteWithChildren
+  '/inbox/$conversaId': typeof AppInboxConversaIdRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/inbox': typeof AppInboxRoute
+  '/inbox': typeof AppInboxRouteWithChildren
+  '/inbox/$conversaId': typeof AppInboxConversaIdRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesById {
@@ -57,16 +65,24 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/_app/inbox': typeof AppInboxRoute
+  '/_app/inbox': typeof AppInboxRouteWithChildren
+  '/_app/inbox/$conversaId': typeof AppInboxConversaIdRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/inbox' | '/api/public/uazapi'
+  fullPaths:
+    '/' | '/login' | '/inbox' | '/inbox/$conversaId' | '/api/public/uazapi'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/inbox' | '/api/public/uazapi'
+  to: '/' | '/login' | '/inbox' | '/inbox/$conversaId' | '/api/public/uazapi'
   id:
-    '__root__' | '/' | '/_app' | '/login' | '/_app/inbox' | '/api/public/uazapi'
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/login'
+    | '/_app/inbox'
+    | '/_app/inbox/$conversaId'
+    | '/api/public/uazapi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,6 +122,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInboxRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox/$conversaId': {
+      id: '/_app/inbox/$conversaId'
+      path: '/$conversaId'
+      fullPath: '/inbox/$conversaId'
+      preLoaderRoute: typeof AppInboxConversaIdRouteImport
+      parentRoute: typeof AppInboxRoute
+    }
     '/api/public/uazapi': {
       id: '/api/public/uazapi'
       path: '/api/public/uazapi'
@@ -116,12 +139,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppInboxRouteChildren {
+  AppInboxConversaIdRoute: typeof AppInboxConversaIdRoute
+}
+
+const AppInboxRouteChildren: AppInboxRouteChildren = {
+  AppInboxConversaIdRoute: AppInboxConversaIdRoute,
+}
+
+const AppInboxRouteWithChildren = AppInboxRoute._addFileChildren(
+  AppInboxRouteChildren,
+)
+
 interface AppRouteChildren {
-  AppInboxRoute: typeof AppInboxRoute
+  AppInboxRoute: typeof AppInboxRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppInboxRoute: AppInboxRoute,
+  AppInboxRoute: AppInboxRouteWithChildren,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
