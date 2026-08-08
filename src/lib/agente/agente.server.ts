@@ -179,11 +179,21 @@ export async function executarTurno(
       // modelo demora. Se o Pedro assumiu a conversa nesse intervalo, a
       // resposta da IA não pode sair atrás da dele. Sobra a janela entre esta
       // leitura e o POST para a UAZAPI, de milissegundos: aceitável.
-      const { data: conversaAgora } = await admin
+      const { data: conversaAgora, error: erroRecheck } = await admin
         .from("conversas")
         .select("pausada_pela_ia")
         .eq("id", ctx.conversaId)
         .maybeSingle();
+
+      // Falhar fechado: sem conseguir ler o estado da pausa, não dá para
+      // afirmar que ninguém assumiu a conversa, e enviar seria justamente o
+      // atropelo que este recheck existe para impedir. Vai como "erro", não
+      // como "pulado", porque o worker dá retry com backoff em erro e
+      // simplesmente desiste no pulado — assim uma falha transitória de
+      // leitura atrasa a resposta em vez de engoli-la.
+      if (erroRecheck) {
+        return { status: "erro", motivo: `falha ao reler a pausa: ${erroRecheck.message}` };
+      }
       if (conversaAgora?.pausada_pela_ia) {
         return { status: "pulado", motivo: "pausada_durante_o_turno" };
       }

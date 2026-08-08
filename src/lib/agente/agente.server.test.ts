@@ -70,22 +70,50 @@ test("conversa pausada é pulada sem chamar a OpenAI", async () => {
 
 test("conversa pausada durante a chamada ao modelo não envia", async () => {
   // A pausa chega depois de decidirTurno e antes do envio — exatamente a
-  // janela que o inbox da Fatia 4 abriu. O dublê de "conversas.select" já
-  // aceita um callback por chamada (ver "toque seguinte recusado por falha
-  // ao confirmar..." mais abaixo); aqui ele conta as leituras e só devolve
-  // pausada a partir da segunda — a checagem inicial do turno passa
-  // despausada, e o recheck logo antes do envio já encontra a pausa.
-  let leiturasDaConversa = 0;
+  // janela que o inbox da Fatia 4 abriu. O flag é virado de dentro do dublê
+  // do MODELO (chamar), não por contagem de leituras: contar leituras só
+  // pinaria "existe uma segunda consulta", e um recheck colocado logo depois
+  // de decidirTurno — antes da chamada ao modelo — também passaria nisso sem
+  // consertar nada, porque a janela que importa é a da chamada ao modelo.
+  // Virando o flag dentro de `chamar`, o teste amarra a ordem de verdade: a
+  // pausa só existe depois que o modelo já respondeu.
+  let pausada = false;
+  const admin = adminDeConversa({
+    "conversas.select": () => ({
+      data: {
+        id: "C1", lead_id: "L1", pausada_pela_ia: pausada,
+        followup_toque: 0, ciclo_pausado_ate: null,
+      },
+      error: null,
+    }),
+  });
+
+  let enviou = false;
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => {
+      pausada = true; // o Pedro assumiu ENQUANTO o modelo respondia
+      return { texto: "resposta da IA", toolCalls: [] };
+    },
+    enviar: async () => { enviou = true; return { messageid: "prov-1" }; },
+  });
+
+  assert.equal(enviou, false);
+  assert.equal(r.status, "pulado");
+  assert.equal(r.motivo, "pausada_durante_o_turno");
+});
+
+test("falha ao reler a pausa não envia — vai como erro para o worker tentar de novo", async () => {
+  // Sem conseguir ler o estado, não dá para afirmar que ninguém assumiu. E
+  // "erro" em vez de "pulado" porque o worker dá retry com backoff no
+  // primeiro e desiste no segundo (loop.server.ts / conversas.server.ts) —
+  // uma falha transitória de leitura deve atrasar a resposta, não engoli-la.
+  let leituras = 0;
   const admin = adminDeConversa({
     "conversas.select": () => {
-      leiturasDaConversa += 1;
-      return {
-        data: {
-          id: "C1", lead_id: "L1", pausada_pela_ia: leiturasDaConversa > 1,
-          followup_toque: 0, ciclo_pausado_ate: null,
-        },
-        error: null,
-      };
+      leituras += 1;
+      return leituras === 1
+        ? { data: { id: "C1", lead_id: "L1", pausada_pela_ia: false, followup_toque: 0, ciclo_pausado_ate: null }, error: null }
+        : { data: null, error: { message: "connection reset" } };
     },
   });
 
@@ -96,8 +124,8 @@ test("conversa pausada durante a chamada ao modelo não envia", async () => {
   });
 
   assert.equal(enviou, false);
-  assert.equal(r.status, "pulado");
-  assert.equal(r.motivo, "pausada_durante_o_turno");
+  assert.equal(r.status, "erro");
+  assert.match(r.motivo ?? "", /connection reset/i);
 });
 
 test("lead com nao_perturbe é pulado sem gastar token", async () => {
@@ -381,9 +409,10 @@ test("toque seguinte recusado por falha ao confirmar opt-out marca atenção e n
   const admin = adminDeConversa({
     "conversas.select": () => {
       chamadasConversa++;
-      // 1ª chamada: leitura inicial do turno, tem que ter sucesso para o
-      // turno continuar até enviar a mensagem do toque.
-      if (chamadasConversa === 1) {
+      // 1ª chamada: leitura inicial do turno. 2ª chamada: o recheck de
+      // pausa desta task, logo antes do envio — as duas têm que ter
+      // sucesso para o turno continuar até enviar a mensagem do toque.
+      if (chamadasConversa <= 2) {
         return {
           data: {
             id: "C1", lead_id: "L1", pausada_pela_ia: false,
@@ -392,7 +421,7 @@ test("toque seguinte recusado por falha ao confirmar opt-out marca atenção e n
           error: null,
         };
       }
-      // 2ª chamada: motivoParaRecusarAgendamento, dentro de agendarToque —
+      // 3ª chamada: motivoParaRecusarAgendamento, dentro de agendarToque —
       // a consulta em si falha (rede, Postgres).
       return { data: null, error: { message: "conexão com o banco caiu" } };
     },
