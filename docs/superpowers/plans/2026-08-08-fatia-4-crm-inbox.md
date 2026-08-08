@@ -2030,18 +2030,26 @@ test("segunda chamada concorrente não reenvia — o CAS recusa", async () => {
 });
 
 test("falha ao preparar o envio não deixa a linha em pendente", async () => {
+  // Sem deps.enviar de propósito: é o resolverEnvioUazapi REAL que precisa
+  // lançar, dentro do try, antes de qualquer escrita de status. Injetar um
+  // dublê que lança não serve — o passo de resolução só REFERENCIA deps.enviar
+  // num nullish check e nunca o chama, então o throw cairia lá adiante, no
+  // envio, depois do CAS já ter mexido no status.
   const admin = adminFalso({ mensagem: { status: "falhou", conteudo: "oi" } });
-  const resultado = await reenviarFalhada(admin, "msg-1", {
-    enviar: (() => {
-      throw new Error("UAZAPI_TOKEN não configurado");
-    }) as any,
-  });
-  assert.equal(resultado.ok, false);
-  assert.equal(
-    admin.ordem.some((p: string) => p.includes("status(pendente)")),
-    false,
-    "mexeu no status antes de saber que conseguiria enviar",
-  );
+  const tokenOriginal = process.env.UAZAPI_TOKEN;
+  delete process.env.UAZAPI_TOKEN;
+  try {
+    const resultado = await reenviarFalhada(admin, "msg-1", {});
+    assert.equal(resultado.ok, false);
+    assert.equal(
+      admin.ordem.some((p: string) => p.includes("status(pendente)")),
+      false,
+      "mexeu no status antes de saber que conseguiria enviar",
+    );
+  } finally {
+    if (tokenOriginal === undefined) delete process.env.UAZAPI_TOKEN;
+    else process.env.UAZAPI_TOKEN = tokenOriginal;
+  }
 });
 
 test("carimba o provider_message_id do reenvio", async () => {
