@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as ApiPublicUazapiRouteImport } from './routes/api/public/uazapi'
 
 const IndexRoute = IndexRouteImport.update({
@@ -18,10 +20,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
 } as any)
 const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
   id: '/api/public/uazapi',
@@ -32,29 +43,35 @@ const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/inbox': typeof AppInboxRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/inbox': typeof AppInboxRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/inbox': typeof AppInboxRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/api/public/uazapi'
+  fullPaths: '/' | '/login' | '/inbox' | '/api/public/uazapi'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/api/public/uazapi'
-  id: '__root__' | '/' | '/login' | '/api/public/uazapi'
+  to: '/' | '/login' | '/inbox' | '/api/public/uazapi'
+  id:
+    '__root__' | '/' | '/_app' | '/login' | '/_app/inbox' | '/api/public/uazapi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiPublicUazapiRoute: typeof ApiPublicUazapiRoute
 }
@@ -68,12 +85,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
     }
     '/api/public/uazapi': {
       id: '/api/public/uazapi'
@@ -85,8 +116,19 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppRouteChildren {
+  AppInboxRoute: typeof AppInboxRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppInboxRoute: AppInboxRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiPublicUazapiRoute: ApiPublicUazapiRoute,
 }

@@ -1,8 +1,18 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import estilos from "../styles.css?url";
 
-// Casca mínima da aplicação. Ainda não há front-end de verdade — isso vem em
-// fatias futuras. Este root route só existe para o TanStack Start ter uma
-// árvore de rotas válida e o SSR conseguir montar <head>/<body>.
+const clienteQuery = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // O inbox é o único consumidor e define o próprio refetchInterval.
+      // Sem retry infinito: um 401 tem que chegar rápido na tela.
+      retry: 1,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -10,6 +20,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "TON-CRM-IA" },
     ],
+    links: [{ rel: "stylesheet", href: estilos }],
   }),
   component: RootComponent,
 });
@@ -21,7 +32,9 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body>
-        <Outlet />
+        <QueryClientProvider client={clienteQuery}>
+          <Outlet />
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>

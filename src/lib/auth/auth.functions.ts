@@ -1,6 +1,7 @@
-// As DUAS únicas server functions sem exigirSessao no projeto — são elas que
-// criam a sessão. O teste do invariante em crm.functions.test.ts as conhece
-// nominalmente como exceções.
+// As TRÊS únicas server functions sem exigirSessao no projeto: entrar e sair
+// criam/encerram a sessão; obterSessaoAtual só lê e devolve null em vez de
+// 401. O teste do invariante em crm.functions.test.ts as conhece nominalmente
+// como exceções.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { registrarErros } from "./middleware.ts";
@@ -33,4 +34,13 @@ export const sair = createServerFn({ method: "POST" })
     const cliente = await criarClienteDeSessao();
     await cliente.auth.signOut();
     return { ok: true };
+  });
+
+/** Usada pelo beforeLoad do layout _app. Devolve null em vez de 401 — quem
+ *  decide o redirect é a rota, não o middleware. */
+export const obterSessaoAtual = createServerFn({ method: "GET" })
+  .middleware([registrarErros])
+  .handler(async (): Promise<{ id: string; email?: string } | null> => {
+    const { obterUsuario } = await import("./sessao.server.ts");
+    return obterUsuario();
   });
