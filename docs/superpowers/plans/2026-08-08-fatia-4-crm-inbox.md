@@ -56,35 +56,40 @@ function clienteFalso(resposta: any) {
   return { auth: { getUser: async () => resposta } };
 }
 
-test("sem cookie nenhum, não há usuário", async () => {
+test("sem usuário na resposta do Supabase, não há sessão", async () => {
   const usuario = await obterUsuario({
-    lerCookies: () => [],
     criarCliente: () => clienteFalso({ data: { user: null }, error: null }),
   });
   assert.equal(usuario, null);
 });
 
-test("cookie presente mas recusado pelo servidor não vira sessão", async () => {
-  // getUser() valida contra o Supabase; um cookie forjado cai aqui.
+test("token recusado pelo servidor não vira sessão", async () => {
+  // getUser() valida contra o Supabase; um cookie forjado cai aqui, e é por
+  // isso que este módulo não usa getSession(), que só decodifica o JWT local.
   const usuario = await obterUsuario({
-    lerCookies: () => [{ name: "sb-access-token", value: "forjado" }],
     criarCliente: () => clienteFalso({ data: { user: null }, error: { message: "invalid JWT" } }),
   });
   assert.equal(usuario, null);
 });
 
-test("cookie válido devolve id e email", async () => {
+test("usuário válido volta como id e email", async () => {
   const usuario = await obterUsuario({
-    lerCookies: () => [{ name: "sb-access-token", value: "bom" }],
     criarCliente: () =>
       clienteFalso({ data: { user: { id: "u-1", email: "pedro@exemplo.com" } }, error: null }),
   });
   assert.deepEqual(usuario, { id: "u-1", email: "pedro@exemplo.com" });
 });
 
-test("exceção do getUser não escapa — vira ausência de sessão", async () => {
+test("usuário sem email não inventa string vazia", async () => {
   const usuario = await obterUsuario({
-    lerCookies: () => [{ name: "sb-access-token", value: "bom" }],
+    criarCliente: () => clienteFalso({ data: { user: { id: "u-1", email: null } }, error: null }),
+  });
+  assert.deepEqual(usuario, { id: "u-1", email: undefined });
+});
+
+test("exceção do getUser não escapa — vira ausência de sessão", async () => {
+  // Supabase fora do ar tem que virar 401, não stack trace no handler.
+  const usuario = await obterUsuario({
     criarCliente: () => ({
       auth: {
         getUser: async () => {
@@ -94,6 +99,19 @@ test("exceção do getUser não escapa — vira ausência de sessão", async () 
     }),
   });
   assert.equal(usuario, null);
+});
+
+test("com criarCliente injetado, nada do runtime do TanStack é tocado", async () => {
+  // Se criarClienteDeSessao resolvesse os helpers de cookie antes de checar o
+  // criarCliente injetado, este teste explodiria fora de um request.
+  let chamou = false;
+  await obterUsuario({
+    criarCliente: () => {
+      chamou = true;
+      return clienteFalso({ data: { user: null }, error: null });
+    },
+  });
+  assert.equal(chamou, true);
 });
 ```
 
@@ -158,12 +176,15 @@ function criarClientePadrao(deps: Required<Pick<DepsSessao, "lerCookies" | "grav
 
 /** Client ligado aos cookies do request atual. Use dentro de um handler. */
 export async function criarClienteDeSessao(deps: DepsSessao = {}): Promise<any> {
-  const doPedido = deps.lerCookies && deps.gravarCookies ? null : await helpersDoPedido();
-  const resolvidas = {
-    lerCookies: deps.lerCookies ?? doPedido!.lerCookies,
-    gravarCookies: deps.gravarCookies ?? doPedido!.gravarCookies,
-  };
-  return (deps.criarCliente ?? (() => criarClientePadrao(resolvidas)))(deps);
+  // O client injetado vem primeiro, e nada do runtime do TanStack é tocado —
+  // é o que permite testar este módulo sob node --test, fora de um request.
+  if (deps.criarCliente) return deps.criarCliente(deps);
+
+  const doPedido = await helpersDoPedido();
+  return criarClientePadrao({
+    lerCookies: deps.lerCookies ?? doPedido.lerCookies,
+    gravarCookies: deps.gravarCookies ?? doPedido.gravarCookies,
+  });
 }
 
 /**
@@ -188,7 +209,7 @@ export async function obterUsuario(
 - [ ] **Step 5: Rodar e ver passar**
 
 Run: `node --test --experimental-strip-types src/lib/auth/sessao.test.ts`
-Expected: PASS, 4 testes
+Expected: PASS, 6 testes
 
 - [ ] **Step 6: Registrar a variável de ambiente**
 
