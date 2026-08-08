@@ -181,15 +181,17 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
   const alvo = await acharOuCriarLead(admin, item);
   if (!alvo) return { status: "ignored" };
 
-  // Dispara LeadSubmitted na Meta CAPI para lead novo com atribuição de
-  // anúncio (ctwa_clid e/ou ad_source_id — um lead às vezes chega com
-  // source_id sem ctwa_clid, e isso ainda é sinal de atribuição válido, não
-  // só o ctwa_clid). Sempre aguardado (await): uma chamada fire-and-forget
+  // Dispara LeadSubmitted na Meta CAPI para lead novo com ctwa_clid. Exige o
+  // clid, não `ctwa_clid || ad_source_id`: um lead às vezes chega com
+  // source_id sem clid, e isso é atribuição válida para o CRM mas NÃO para a
+  // CAPI — a Meta recusa business_messaging sem ctwa_clid (400, subcode
+  // 2804071). Tentar assim só queima chamada e grava erro previsível.
+  // Sempre aguardado (await): uma chamada fire-and-forget
   // pode ser descartada pelo runtime ao responder o HTTP antes do fetch
   // terminar, e o evento nunca chega na Meta. Best-effort — envolto em
   // try/catch para que uma falha do CAPI nunca custe o processamento da
   // mensagem (mesmo princípio já usado para mídia acima).
-  if (alvo.leadNovo && alvo.atribuicao && (alvo.atribuicao.ctwaClid || alvo.atribuicao.adSourceId)) {
+  if (alvo.leadNovo && alvo.atribuicao?.ctwaClid) {
     try {
       const { enviarEventoCapi } = await import("../capi/capi.server.ts");
       const { telefone } = resolverTelefoneReal(item, item?.key ?? {});

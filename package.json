@@ -11,7 +11,8 @@
     "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "seed:demo": "bun --env-file=.env run scripts/semear-demo.ts"
+    "seed:demo": "bun --env-file=.env run scripts/semear-demo.ts",
+    "capi:redisparar": "bun --env-file=.env run scripts/redisparar-capi.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
