@@ -397,6 +397,17 @@ test("o que não é string vira o padrão", () => {
   assert.equal(destinoSeguro(undefined), "/inbox");
   assert.equal(destinoSeguro(123), "/inbox");
 });
+
+test("tab, CR e LF não driblam a checagem", () => {
+  // A spec WHATWG REMOVE tab/CR/LF antes de parsear, então "/\t/evil.com"
+  // vira https://evil.com/ no navegador — passando por qualquer guarda que
+  // olhe só o prefixo literal. Chegam aqui como %09/%0A/%0D no ?destino=.
+  assert.equal(destinoSeguro("/\t/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\n/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\r/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\r\n/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\t\t//evil.com"), "/inbox");
+});
 ```
 
 Rode (`node --test --experimental-strip-types src/lib/auth/destino.test.ts`), veja falhar por módulo inexistente, e só então crie `src/lib/auth/destino.ts`:
@@ -404,13 +415,36 @@ Rode (`node --test --experimental-strip-types src/lib/auth/destino.test.ts`), ve
 ```ts
 // Puro: sem React, sem alias, testável sob node --test.
 
-/** Só aceita caminho interno como destino pós-login. Qualquer outra coisa
- *  cai no padrão — ver destino.test.ts para o que "outra coisa" inclui. */
+/** Base sentinela para resolver o candidato. Nunca sai daqui — só serve para
+ *  perguntar ao parser se a string mudaria de origem. */
+const BASE_SENTINELA = "https://base.invalid";
+
+/**
+ * Só aceita caminho interno como destino pós-login.
+ *
+ * A decisão é delegada ao MESMO parser de URL que o navegador usa, em vez de
+ * comparar prefixos: a spec WHATWG remove tab, CR e LF antes de parsear, de
+ * modo que "/\t/evil.com" vira https://evil.com/ e engana qualquer checagem
+ * de `startsWith`. Perguntar ao parser se a origem mudou fecha a classe
+ * inteira de bypass por normalização, em vez de caçar caractere por
+ * caractere.
+ */
 export function destinoSeguro(bruto: unknown): string {
   if (typeof bruto !== "string") return "/inbox";
   if (!bruto.startsWith("/")) return "/inbox";
-  if (bruto.startsWith("//") || bruto.startsWith("/\\")) return "/inbox";
-  return bruto;
+
+  let url: URL;
+  try {
+    url = new URL(bruto, BASE_SENTINELA);
+  } catch {
+    return "/inbox";
+  }
+
+  // Mudou de origem ao ser resolvido: era URL disfarçada de caminho.
+  if (url.origin !== BASE_SENTINELA) return "/inbox";
+
+  // Devolve a forma já normalizada pelo parser, não a string crua.
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 ```
 
