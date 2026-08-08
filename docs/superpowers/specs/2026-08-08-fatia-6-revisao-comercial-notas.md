@@ -378,3 +378,35 @@ Certo: "Segue a T2 <link>. Você prefere no CPF mesmo ou vai abrir CNPJ?"
 - Os casos golden (`src/lib/agente/casos-golden.ts`) precisam de um por regra
   desta seção — em especial "quero essa" NÃO virando suporte, e conta bloqueada
   escalando em vez de virar tutorial.
+
+## 9. Reenquadramento do dono: o objetivo é CONVERSÃO
+
+Direção dada em 08/08/2026, e ela reordena as seções acima: o foco é receber o
+lead do anúncio e **vender**. Regra de programa não é critério de decisão aqui.
+
+Reescrevendo os limites das seções 4 e 5 em termos de conversão — o que
+sobrevive sobrevive porque **protege receita**, não porque é norma:
+
+| limite | justificativa por regra (fraca) | justificativa por venda (a que vale) |
+| --- | --- | --- |
+| janela 21h–08h | "diretriz" | mensagem às 4h é denúncia e bloqueio. Número bloqueado = **conversão zero**, não conversão menor. E a taxa de resposta de madrugada é péssima: o mesmo toque às 8h vale mais. |
+| parar após 3 recusas do destinatário | — | quem bloqueou não compra. Insistir marca o chip como spam e derruba a entrega **de todos os outros leads**. |
+| não inventar urgência/escassez | "infração" | mentira descoberta mata a venda no ato e queima indicação. Urgência REAL (frete grátis, promo vigente) deve ser usada com força — o problema nunca foi urgência, foi urgência falsa. |
+| teto de 4 toques + pausa de 30 dias | "perseguição, contra diretrizes" | **este cai.** Era o mais apoiado em norma e o menos apoiado em dado. O que deve governar é sinal: enquanto houver ângulo NOVO e o lead não estiver bloqueando nem pedindo para parar, continua. O corte vem da métrica (resposta, bloqueio), não de um número fixo. |
+
+Ou seja: dos limites que eu tinha escrito, três continuam por razão comercial e
+**um cai** — o teto rígido de toques passa a ser governado por sinal medido, não
+por regra.
+
+O que NÃO muda: `nao_perturbe` continua absoluto (quem pediu para parar não
+recebe mais nada — insistir aí é o caminho mais rápido para denúncia), e a IA
+não inventa número, taxa nem prazo. Os dois são proteção de receita, não
+burocracia.
+
+**Prioridade da fatia, nesta ordem:** (1) resgate pré-link, porque hoje 7 de 11
+leads morrem sem nenhum toque; (2) os três modos de atendimento, porque ela
+está entregando suporte antes de existir venda; (3) escada de ângulos, porque
+reformular a mesma pergunta responde 27,8% contra 46,8% do ângulo novo;
+(4) ciclo de aprendizado, para melhorar com o uso.
+
+Material adicional do dono chega depois e entra nesta fatia.
