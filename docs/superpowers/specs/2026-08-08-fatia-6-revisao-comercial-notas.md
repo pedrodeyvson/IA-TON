@@ -201,3 +201,80 @@ aconteceu com o CAPI aqui por um dia inteiro.
 
 Depende de gravar por turno: origem, status, tokens (in/out/cache), tools
 usadas e o erro quando houver. Hoje não gravamos turno nenhum.
+
+## 7. A Mika virou suporte e abandonou a venda — caso 5521973174307
+
+Conversa completa de 11:33 a 11:48 (conversa `08974c9c`), lead de anúncio que
+abriu com "QUERO ADQUIRIR UMA MÁQUINA DA TON". Decisão do dono: **o foco é
+venda; suporte completo só DEPOIS que o lead confirmar que comprou.**
+
+### 7.1 Tratou intenção como conversão
+
+- 11:45 lead: **"Quero essa"**
+- 11:46 Mika: "Perfeito. Então você já pode seguir com a T2. Se travar em
+  cadastro, documento ou ativação, eu te ajudo no caminho."
+
+"Quero essa" não é "comprei". A Mika nunca perguntou se ele finalizou, e a
+partir dali só falou de cadastro, documento e selfie — quatro mensagens
+seguidas de suporte. O estágio do lead foi para "Acompanhamento" e a comissão
+estimada apareceu como R$75 sem nenhuma confirmação de pedido.
+
+**Regra a implementar:** só entra em modo suporte com confirmação explícita de
+compra ("comprei", "finalizei", "fiz o cadastro"). Antes disso, dúvida de
+cadastro se responde em UMA linha e volta para o fechamento.
+
+### 7.2 O sinal comercial mais importante da conversa passou batido
+
+- 11:47 lead: *"eu não sabia que a Ton era a mesma coisa da Stone, eu tentei
+  abrir e **bloqueou minha conta**, como faço pra ativar"*
+- Mika: repetiu o passo a passo de ativação. Duas vezes.
+
+Isso não é chamado de suporte, é **o bloqueio da venda**. O lead já tinha
+cadastro Stone/Ton — conta bloqueada por CPF duplicado é o caso clássico, e
+uma adesão que não passa como nova provavelmente **não gera comissão pelo link
+de afiliado**. A Mika gastou quatro mensagens ajudando a ativar uma conta que
+pode não ser venda dela, sem nunca perguntar:
+
+1. "Você chegou a finalizar a compra pelo link que te mandei?"
+2. "Essa conta que bloqueou é de antes de hoje?"
+
+**Regra:** lead que menciona conta anterior, conta bloqueada ou cadastro
+existente = escalar para o dono. É risco de comissão, não dúvida técnica.
+
+### 7.3 Sete "Sim" — perguntas que não avançam o fechamento
+
+O lead respondeu literalmente **"Sim" sete vezes**. Quase toda mensagem da
+Mika termina em "Quer que eu...?" / "Posso...?" / "Se quiser, eu...". Isso
+produz turno vazio: ela pede permissão, ele autoriza, ela entrega, e pede
+permissão de novo. Foram **12 turnos** entre "2 mil" e "Quero essa" para uma
+decisão que cabia em três.
+
+Vendedor conduz; não pede licença a cada passo. Pedir permissão para mandar o
+link é dar ao lead uma chance a mais de dizer não.
+
+### 7.4 Catálogo criou a indecisão que ela depois teve que resolver
+
+Às 11:38 ela já sabia tudo que precisava (CPF, R$2 mil/mês, uso básico) e mesmo
+assim mandou o **link do catálogo**. O lead saiu passeando: recebeu T1 → voltou
+perguntando "essa T2 é como?" → pediu comparação → fechou na T2. **Três links
+em sete minutos.** A indecisão foi criada pela própria IA. Confirma o padrão
+já registrado na seção 3: catálogo é para indeciso, não para quem já foi
+diagnosticado.
+
+### 7.5 Ela empurrou o ticket para baixo sozinha
+
+"eu iria de Ton Mega+ mais simples pra você não pagar por recurso que ainda não
+vai usar" → T1, a mais barata. Honesto, e não é para virar empurra-produto —
+mas ela nunca testou se Pix na maquininha resolvia uma dor real dele. A venda
+subiu para T2 porque o **lead** puxou, não porque ela vendeu. Faltou uma
+pergunta de descoberta antes de recomendar o piso.
+
+### 7.6 Resumo das regras que saem daqui
+
+| gatilho | comportamento hoje | comportamento correto |
+| --- | --- | --- |
+| "quero essa" | vira suporte | confirma a compra primeiro |
+| "comprei / finalizei" | — | aí sim, suporte completo |
+| conta bloqueada / já tenho conta | passo a passo de ativação | escalar para o dono: risco de comissão |
+| já tem diagnóstico | manda catálogo | manda o checkout do modelo escolhido |
+| fim de mensagem | "quer que eu...?" | conduz, sem pedir licença |
