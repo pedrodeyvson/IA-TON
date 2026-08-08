@@ -7,6 +7,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { exigirSessao, registrarErros } from "../auth/middleware.ts";
+import { ESTAGIOS } from "./estagios.ts";
 
 const porConversa = z.object({ conversaId: z.string().uuid() });
 const porLead = z.object({ leadId: z.string().uuid() });
@@ -83,4 +84,200 @@ export const obterUrlDeMidia = createServerFn({ method: "GET" })
       .from("crm-midia")
       .createSignedUrl(mensagem.media_path, 300);
     return { url: assinada?.signedUrl ?? null };
+  });
+
+export const responderNoInbox = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z
+      .object({
+        conversaId: z.string().uuid(),
+        leadId: z.string().uuid(),
+        texto: z.string().min(1).max(4096),
+      })
+      .parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { responderComoHumano } = await import("./inbox.server.ts");
+    return responderComoHumano(supabaseAdmin, data);
+  });
+
+export const devolverParaIa = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porConversa.parse(dados))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { retomarIa } = await import("./conversas.server.ts");
+    await retomarIa(supabaseAdmin, data.conversaId);
+    return { ok: true };
+  });
+
+export const pausarIaNaConversa = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porConversa.parse(dados))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { pausarIa } = await import("./conversas.server.ts");
+    await pausarIa(supabaseAdmin, data.conversaId);
+    return { ok: true };
+  });
+
+export const marcarConversaLida = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porLead.parse(dados))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { marcarLida } = await import("./conversas.server.ts");
+    await marcarLida(supabaseAdmin, data.leadId);
+    return { ok: true };
+  });
+
+export const resolverAtencao = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porLead.parse(dados))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin.from("leads").update({ precisa_atencao: false }).eq("id", data.leadId);
+    await supabaseAdmin
+      .from("eventos_lead")
+      .insert({ lead_id: data.leadId, tipo_evento: "atencao_resolvida", detalhe: {} });
+    return { ok: true };
+  });
+
+export const moverEstagioDoLead = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z.object({ leadId: z.string().uuid(), estagio: z.enum(ESTAGIOS) }).parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { moverEstagio } = await import("./leads.server.ts");
+    const mudou = await moverEstagio(supabaseAdmin, data.leadId, data.estagio, { origem: "inbox" });
+    return { ok: mudou };
+  });
+
+export const atualizarDadosDoLead = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z
+      .object({
+        leadId: z.string().uuid(),
+        campos: z.object({
+          nome: z.string().max(120).nullable().optional(),
+          maquina_interesse: z.string().max(120).nullable().optional(),
+          comissao_estimada: z.number().nonnegative().nullable().optional(),
+        }),
+      })
+      .parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { atualizarLead } = await import("./leads.server.ts");
+    await atualizarLead(supabaseAdmin, data.leadId, data.campos);
+    return { ok: true };
+  });
+
+export const registrarNotaNoLead = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z.object({ leadId: z.string().uuid(), texto: z.string().min(1).max(2000) }).parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { registrarNota } = await import("./leads.server.ts");
+    await registrarNota(supabaseAdmin, data.leadId, data.texto);
+    return { ok: true };
+  });
+
+/**
+ * Só liga o não-perturbe. Desligar é decisão que o spec mestre reserva ao
+ * banco, à mão — o opt-out é permanente por escolha de conduta do programa.
+ */
+export const alternarNaoPerturbe = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z
+      .object({
+        leadId: z.string().uuid(),
+        conversaId: z.string().uuid().nullable().optional(),
+        motivo: z.string().max(300).default("marcado manualmente no inbox"),
+      })
+      .parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { registrarNaoPerturbe } = await import("./nao-perturbe.server.ts");
+    await registrarNaoPerturbe(supabaseAdmin, {
+      leadId: data.leadId,
+      conversaId: data.conversaId ?? null,
+      motivo: data.motivo,
+    });
+    return { ok: true };
+  });
+
+export const criarTarefaDoCrm = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z
+      .object({
+        leadId: z.string().uuid(),
+        titulo: z.string().min(1).max(200),
+        descricao: z.string().max(2000).nullable().optional(),
+        prazo: z.string().datetime().nullable().optional(),
+      })
+      .parse(dados),
+  )
+  .handler(async ({ data }): Promise<any> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { criarTarefa } = await import("./tarefas.server.ts");
+    return criarTarefa(supabaseAdmin, data);
+  });
+
+export const alternarTarefaDoCrm = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) =>
+    z.object({ tarefaId: z.string().uuid(), concluida: z.boolean() }).parse(dados),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { alternarTarefa } = await import("./tarefas.server.ts");
+    await alternarTarefa(supabaseAdmin, data.tarefaId, data.concluida);
+    return { ok: true };
+  });
+
+export const excluirTarefaDoCrm = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => z.object({ tarefaId: z.string().uuid() }).parse(dados))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { excluirTarefa } = await import("./tarefas.server.ts");
+    await excluirTarefa(supabaseAdmin, data.tarefaId);
+    return { ok: true };
+  });
+
+/**
+ * Reenvia uma mensagem que ficou em `falhou`. Relê texto, conversa e lead do
+ * banco a partir do ID — o cliente manda só qual mensagem, nunca o conteúdo.
+ */
+export const reenviarMensagem = createServerFn({ method: "POST" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porMensagem.parse(dados))
+  .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: mensagem } = await supabaseAdmin
+      .from("mensagens")
+      .select("id, conversa_id, lead_id, conteudo, status")
+      .eq("id", data.mensagemId)
+      .maybeSingle();
+
+    if (!mensagem) return { ok: false, erro: "mensagem não encontrada" };
+    if (mensagem.status !== "falhou") return { ok: false, erro: "mensagem não está falhada" };
+
+    const { responderComoHumano } = await import("./inbox.server.ts");
+    return responderComoHumano(supabaseAdmin, {
+      conversaId: mensagem.conversa_id,
+      leadId: mensagem.lead_id,
+      texto: mensagem.conteudo ?? "",
+    });
   });
