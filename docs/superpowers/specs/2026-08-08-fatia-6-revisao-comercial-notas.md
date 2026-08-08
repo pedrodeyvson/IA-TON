@@ -410,3 +410,133 @@ reformular a mesma pergunta responde 27,8% contra 46,8% do ângulo novo;
 (4) ciclo de aprendizado, para melhorar com o uso.
 
 Material adicional do dono chega depois e entra nesta fatia.
+
+## 10. Pesquisa externa — frameworks de venda traduzidos para a Mika
+
+Pedido do dono: já não há mais material próprio para mandar; buscar fora e
+combinar com o que já foi levantado (CPI + conversas reais). Pesquisado em
+08/08/2026. Cada framework abaixo só entra se sobreviver ao filtro da seção 9
+— serve para vender mais, não para "parecer profissional".
+
+### 10.1 SPIN — a ordem certa de pergunta, que ela ainda não tem
+
+Rackham (Huthwaite, 35.000 ligações analisadas): a sequência que funciona é
+Situação → Problema → Implicação → Ganho-com-a-solução. A Mika hoje pula
+direto para Situação ("qual maquininha você usa e quanto paga de taxa?") e
+recomenda — sem nunca perguntar Implicação nem Ganho.
+
+Isso é o que explica a seção 2 (o caso do lead que pagava menos): ela tinha a
+Situação (1,5%/2,5%) e foi direto para a comparação nominal, sem nunca chegar
+em Implicação — quanto isso custa por mês no volume dele — nem em
+Ganho-com-a-solução — o que muda pra ele com o dinheiro na hora. **Adaptado:**
+
+| etapa SPIN | pergunta-tipo para a Mika |
+| --- | --- |
+| Situação | o que já pergunta hoje: máquina atual, taxa, CPF/CNPJ, volume |
+| Problema | "isso trava seu caixa em algum mês?" / "já perdeu venda por não ter Pix na maquininha?" |
+| Implicação | "com R$X/mês nessa taxa, isso dá quanto a mais por ano?" — número dele, nunca inventado |
+| Ganho | "se isso caísse pra [taxa Ton], onde esse dinheiro faria diferença pra você?" |
+
+Só a Implicação já fecha metade do trabalho que a seção 2 pede: em vez de
+"nossa taxa é maior", vira "só a taxa nominal não conta a história — vamos ver
+o que isso significa pro seu caixa".
+
+### 10.2 Qualificação leve (BANT light) — o que falta em TODOS os leads reais
+
+BANT = Budget, Authority, Need, Timeline; a versão "leve" para SDR (triagem
+rápida, ciclo curto) usa só o suficiente para não perder tempo com quem não
+compra. Cruzando com a seção 1 (7 de 11 leads reais sem UMA informação
+coletada): a Mika não está nem chegando no Need, que é o mínimo.
+
+Tradução mínima e NÃO burocrática (uma pergunta cobre dois campos, sempre
+natural na conversa, nunca formulário):
+- **Need** — já existe: "qual maquininha usa, quanto paga de taxa"
+- **Timeline** — falta: "já pensa em trocar agora ou só pesquisando?" — separa
+  quem fecha hoje de quem precisa de nutrição (o resgate pré-link, seção 4)
+- Authority/Budget não cabem para pessoa física/MEI comprando maquininha —
+  descartados de propósito, não por omissão.
+
+### 10.3 Feel-Felt-Found — só como INGREDIENTE do ângulo `objecao`, nunca como script
+
+Zig Ziglar: reconhece o sentimento → normaliza (outros sentiram o mesmo) →
+mostra a saída. A pesquisa é explícita num risco real: **comprador experiente
+reconhece a fórmula na hora se ela vier decorada** ("entendo como você se
+sente... outros clientes já se sentiram assim..."), e aí vira o oposto de
+autêntico.
+
+**Como entra:** não como frase fixa — como a MECÂNICA por trás do ângulo
+`objecao` que já está na seção 4/8 (nomear o receio provável e desarmar com a
+verdade). A Mika nomeia o receio nas palavras da conversa, não com a fórmula
+de manual.
+
+### 10.4 Cialdini — quais dos 6 já estão em uso e quais faltam
+
+A pesquisa confirma a linha que a seção 9 já tinha traçado por conta própria:
+os mesmos 6 princípios (reciprocidade, prova social, autoridade, afinidade,
+compromisso e consistência, escassez) que vendem também manipulam — a
+diferença é usar com dado real, nunca inventado.
+
+| princípio | já coberto (onde) | falta |
+| --- | --- | --- |
+| Reciprocidade | ângulo `valor` (seção 8.4) | — |
+| Prova social | ângulo `prova_social` (seção 8.4) | — |
+| Escassez | proibida se falsa (seção 9) | usar REAL quando existir (frete grátis vigente, promo com data) |
+| Compromisso e consistência | — | **10.5 abaixo — é o que mais falta hoje** |
+| Autoridade | parcial (seção 8.2, "sou consultora Ton") | reforçar: números que ela cita vêm de tabela real, nunca chutado |
+| Afinidade | — | conexão concreta com os dados dele (seção 8.4), não simpatia genérica |
+
+### 10.5 Fechamento assumido + micro-compromissos — o que fecha o buraco dos "Sim" vazios
+
+A pesquisa nomeia exatamente o padrão que a seção 8.5 já tinha identificado
+como problema (sete "Sim" numa conversa só) e dá o antídoto com precisão:
+**cada rodada da conversa é um micro-compromisso**, e a linguagem muda de
+"você quer?" para "vamos fazer assim" — sem pedir permissão para o passo
+óbvio, só para a decisão real.
+
+Regra de aplicação — troca de verbo, não desonestidade:
+- Errado: "Se quiser, eu te mando o link. Quer?"
+- Certo (assumido): "Vou te mandar o link da T2 — só confirma se é CPF ou CNPJ
+  pra eu já preencher certo."
+
+O fechamento assumido só é honesto quando o compromisso anterior já foi dado
+pelo próprio lead (ele disse "quero essa" antes) — usar cedo demais, sem
+compromisso prévio, é pressão, não condução. É a diferença entre "conduzir" e
+"empurrar" que a seção 8 já registrava; a pesquisa dá o mecanismo.
+
+### 10.6 IA conversacional — por que velocidade é a alavanca que ainda não foi medida aqui
+
+Dado de mercado (múltiplas fontes 2026): resposta rápida é o fator de maior
+alavancagem em conversão por chat — quem responde na hora converte
+substancialmente mais que quem demora, e times com IA relatam alta de leads
+e de conversão justamente por velocidade + qualificação consistente + captura
+de contexto que não se perde entre atendentes.
+
+**Isso já é ponto forte do sistema** (a Mika responde em segundos, todo dia).
+O que falta para capturar esse ganho de verdade é o que as seções 1 e 4 já
+apontam: velocidade sem cadência de resgate pré-link desperdiça exatamente a
+vantagem que a resposta rápida cria — o lead engaja rápido e esfria sem
+ninguém puxar de volta.
+
+## 11. Cruzamento final — o que muda de prioridade dentro da fatia
+
+A pesquisa não abre frente nova; ela reforça e ordena o que já estava
+registrado nas seções 1–9, com framework e nome por trás de cada peça:
+
+1. **SPIN** empresta a ordem de pergunta que faltava nos 3 modos (seção 8.1) —
+   Situação já existe, falta Implicação e Ganho antes de recomendar.
+2. **BANT light** dá o critério objetivo que a trava de estágio em código
+   (`limitarEstagio`, já implementada) precisa para decidir "qualificando":
+   não é só ter respondido, é ter dado Need + Timeline.
+3. **Feel-Felt-Found** vira mecânica (não script) do ângulo `objecao` da
+   escada do CPI (seção 5).
+4. **Cialdini** confirma o desenho da seção 9 e aponta o único princípio
+   ausente hoje: compromisso e consistência.
+5. **Fechamento assumido** é a correção direta e nomeada do "Sim" vazio
+   (seção 8.5), com a condição de uso (só depois de compromisso do lead).
+6. **Velocidade de resposta** confirma que o resgate pré-link (seção 4) é a
+   prioridade #1 — é onde a vantagem que já existe (resposta rápida) está
+   vazando.
+
+Nenhum item novo de escopo; a fatia continua na ordem da seção 9: (1) resgate
+pré-link, (2) três modos com SPIN completo, (3) escada de ângulos com
+Feel-Felt-Found como mecânica do `objecao`, (4) ciclo de aprendizado.
