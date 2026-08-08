@@ -7,21 +7,44 @@
 // existir.
 import { TOTAL_DE_TOQUES } from "./regua.ts";
 
-/** Base do backoff: 30s, 60s, 120s. */
+/** Base do backoff: `MS_POR_TENTATIVA * 2 ** tentativas` — 60s na 1ª falha,
+ *  120s na 2ª; na 3ª (`MAX_TENTATIVAS`) desiste em vez de calcular um novo prazo. */
 export const MS_POR_TENTATIVA = 30_000;
 
 /** Depois de 3 falhas seguidas o agente desiste e o lead vira problema do Pedro. */
 export const MAX_TENTATIVAS = 3;
 
+export type ResultadoAgendamento = { agendado: boolean; motivo?: "nao_perturbe" };
+
+/**
+ * A instância de WhatsApp é compartilhada com outro projeto do dono: um
+ * webhook/worker que esqueça de checar `nao_perturbe` antes de chamar
+ * `agendarResposta`/`agendarToque` reabriria follow-up para quem pediu para
+ * parar. Por isso a checagem mora aqui dentro, não só no lado de quem chama —
+ * defesa em profundidade, não depende de disciplina externa.
+ */
+async function leadOptouPorNaoPerturbe(admin: any, conversaId: string): Promise<boolean> {
+  const { data } = await admin
+    .from("conversas")
+    .select("id, leads(nao_perturbe)")
+    .eq("id", conversaId)
+    .maybeSingle();
+  return data?.leads?.nao_perturbe === true;
+}
+
 export async function agendarResposta(
   admin: any,
   conversaId: string,
   atrasoMs: number,
-): Promise<void> {
+  agoraMs: number = Date.now(),
+): Promise<ResultadoAgendamento> {
+  if (await leadOptouPorNaoPerturbe(admin, conversaId)) {
+    return { agendado: false, motivo: "nao_perturbe" };
+  }
   await admin
     .from("conversas")
     .update({
-      responder_em: new Date(Date.now() + atrasoMs).toISOString(),
+      responder_em: new Date(agoraMs + atrasoMs).toISOString(),
       motivo_agendamento: "resposta",
       // Mensagem nova reabre o crédito: uma falha de ontem não pode condenar a
       // resposta de hoje.
@@ -29,6 +52,7 @@ export async function agendarResposta(
       ultimo_erro: null,
     })
     .eq("id", conversaId);
+  return { agendado: true };
 }
 
 /** Agenda um toque da régua no instante exato que `planejarProximoToque` devolveu. */
@@ -36,7 +60,10 @@ export async function agendarToque(
   admin: any,
   conversaId: string,
   quandoIso: string,
-): Promise<void> {
+): Promise<ResultadoAgendamento> {
+  if (await leadOptouPorNaoPerturbe(admin, conversaId)) {
+    return { agendado: false, motivo: "nao_perturbe" };
+  }
   await admin
     .from("conversas")
     .update({
@@ -46,6 +73,7 @@ export async function agendarToque(
       ultimo_erro: null,
     })
     .eq("id", conversaId);
+  return { agendado: true };
 }
 
 export async function registrarToqueEnviado(
@@ -113,6 +141,7 @@ export async function registrarFalha(
   conversaId: string,
   tentativas: number,
   erro: string,
+  agoraMs: number = Date.now(),
 ): Promise<void> {
   const desistiu = tentativas >= MAX_TENTATIVAS;
   await admin
@@ -125,7 +154,7 @@ export async function registrarFalha(
       processando_em: null,
       responder_em: desistiu
         ? null
-        : new Date(Date.now() + MS_POR_TENTATIVA * 2 ** tentativas).toISOString(),
+        : new Date(agoraMs + MS_POR_TENTATIVA * 2 ** tentativas).toISOString(),
     })
     .eq("id", conversaId);
 }

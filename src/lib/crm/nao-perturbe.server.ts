@@ -4,7 +4,7 @@
 //
 // Fica fora de leads.server.ts de propósito: o opt-out mexe em lead, conversa e
 // evento no mesmo movimento, e nenhum desses módulos é dono dos três.
-import { limparAgendamento, pausarIa } from "./conversas.server.ts";
+import { limparAgendamento, pausarIa, reiniciarCiclo } from "./conversas.server.ts";
 
 export type ParamsNaoPerturbe = {
   leadId: string;
@@ -32,6 +32,10 @@ export async function registrarNaoPerturbe(
 
   if (params.conversaId) {
     await limparAgendamento(admin, params.conversaId);
+    // Opt-out é permanente: não faz sentido deixar followup_toque/ciclo_pausado_ate
+    // obsoletos no banco, mesmo que agendarResposta/agendarToque já os
+    // recusassem por conta própria caso alguém tentasse reler esse estado.
+    await reiniciarCiclo(admin, params.conversaId);
     await pausarIa(admin, params.conversaId);
   }
 }

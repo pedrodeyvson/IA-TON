@@ -32,6 +32,15 @@ test("apaga qualquer agendamento pendente e pausa a IA", async () => {
   assert.ok(updates.some((u) => u.payload.pausada_pela_ia === true));
 });
 
+test("zera o estado da régua (toque do ciclo e pausa de ciclo) junto com o agendamento", async () => {
+  const admin = criarAdminFake();
+  await registrarNaoPerturbe(admin, CTX);
+
+  const updates = admin.chamadas.filter((c) => c.tabela === "conversas" && c.operacao === "update");
+  assert.ok(updates.some((u) => u.payload.followup_toque === 0), "opt-out não pode deixar toque obsoleto");
+  assert.ok(updates.some((u) => u.payload.ciclo_pausado_ate === null), "nem pausa de ciclo obsoleta");
+});
+
 test("funciona sem conversaId (opt-out vindo de fora da conversa)", async () => {
   const admin = criarAdminFake();
   await registrarNaoPerturbe(admin, { leadId: "L1", conversaId: null, motivo: "pediu no telefone" });

@@ -13,26 +13,58 @@ function payloadUpdate(admin: any) {
 
 test("agendarResposta grava responder_em no futuro com motivo resposta", async () => {
   const admin = criarAdminFake();
-  const antes = Date.now();
-  await agendarResposta(admin, "C1", 8000);
+  const agora = Date.parse("2026-08-07T10:00:00.000Z");
+  const resultado = await agendarResposta(admin, "C1", 8000, agora);
 
+  assert.equal(resultado.agendado, true);
   const p = payloadUpdate(admin);
   assert.equal(p.motivo_agendamento, "resposta");
-  assert.ok(new Date(p.responder_em).getTime() >= antes + 8000);
+  assert.equal(p.responder_em, "2026-08-07T10:00:08.000Z");
   // Mensagem nova reabre o crédito de tentativas.
   assert.equal(p.tentativas, 0);
   assert.equal(p.ultimo_erro, null);
 });
 
+test("agendarResposta não agenda quando o lead está em nao_perturbe", async () => {
+  const admin = criarAdminFake({
+    "conversas.select": { data: { id: "C1", leads: { nao_perturbe: true } }, error: null },
+  });
+  const resultado = await agendarResposta(admin, "C1", 8000);
+
+  assert.deepEqual(resultado, { agendado: false, motivo: "nao_perturbe" });
+  assert.equal(payloadUpdate(admin), undefined, "nenhum update pode escrever responder_em");
+});
+
+test("agendarResposta agenda normalmente quando o lead não optou por não perturbe", async () => {
+  const admin = criarAdminFake({
+    "conversas.select": { data: { id: "C1", leads: { nao_perturbe: false } }, error: null },
+  });
+  const resultado = await agendarResposta(admin, "C1", 8000);
+
+  assert.equal(resultado.agendado, true);
+  assert.ok(payloadUpdate(admin), "deve escrever o agendamento normalmente");
+});
+
 test("agendarToque grava o instante exato calculado pela régua", async () => {
   const admin = criarAdminFake();
   const quando = "2026-08-10T12:00:00.000Z";
-  await agendarToque(admin, "C1", quando);
+  const resultado = await agendarToque(admin, "C1", quando);
 
+  assert.equal(resultado.agendado, true);
   const p = payloadUpdate(admin);
   assert.equal(p.responder_em, quando);
   assert.equal(p.motivo_agendamento, "followup");
   assert.equal(p.tentativas, 0);
+});
+
+test("agendarToque não agenda quando o lead está em nao_perturbe", async () => {
+  const admin = criarAdminFake({
+    "conversas.select": { data: { id: "C1", leads: { nao_perturbe: true } }, error: null },
+  });
+  const resultado = await agendarToque(admin, "C1", "2026-08-10T12:00:00.000Z");
+
+  assert.deepEqual(resultado, { agendado: false, motivo: "nao_perturbe" });
+  assert.equal(payloadUpdate(admin), undefined, "nenhum toque pode ser escrito para quem optou por sair");
 });
 
 test("registrarToqueEnviado guarda em que toque o ciclo está", async () => {
@@ -87,14 +119,18 @@ test("soltarLock preserva o agendamento que o turno acabou de fazer", async () =
 
 test("registrarFalha aplica backoff exponencial e solta o lock", async () => {
   const admin = criarAdminFake();
-  const antes = Date.now();
-  await registrarFalha(admin, "C1", 2, "openai 503");
+  const agora = Date.parse("2026-08-07T10:00:00.000Z");
+  await registrarFalha(admin, "C1", 2, "openai 503", agora);
 
   const p = payloadUpdate(admin);
   assert.equal(p.tentativas, 2);
   assert.equal(p.ultimo_erro, "openai 503");
   assert.equal(p.processando_em, null);
-  assert.ok(new Date(p.responder_em).getTime() >= antes + MS_POR_TENTATIVA * 4);
+  assert.equal(
+    p.responder_em,
+    new Date(agora + MS_POR_TENTATIVA * 4).toISOString(),
+    "tentativas=2 -> 2^2 * 30s = 120s de backoff",
+  );
 });
 
 test("registrarFalha na 3ª tentativa desiste em vez de reagendar", async () => {
