@@ -68,6 +68,38 @@ test("conversa pausada é pulada sem chamar a OpenAI", async () => {
   assert.equal(chamou, false, "não pode gastar token numa conversa pausada");
 });
 
+test("conversa pausada durante a chamada ao modelo não envia", async () => {
+  // A pausa chega depois de decidirTurno e antes do envio — exatamente a
+  // janela que o inbox da Fatia 4 abriu. O dublê de "conversas.select" já
+  // aceita um callback por chamada (ver "toque seguinte recusado por falha
+  // ao confirmar..." mais abaixo); aqui ele conta as leituras e só devolve
+  // pausada a partir da segunda — a checagem inicial do turno passa
+  // despausada, e o recheck logo antes do envio já encontra a pausa.
+  let leiturasDaConversa = 0;
+  const admin = adminDeConversa({
+    "conversas.select": () => {
+      leiturasDaConversa += 1;
+      return {
+        data: {
+          id: "C1", lead_id: "L1", pausada_pela_ia: leiturasDaConversa > 1,
+          followup_toque: 0, ciclo_pausado_ate: null,
+        },
+        error: null,
+      };
+    },
+  });
+
+  let enviou = false;
+  const r = await executarTurno(admin, CTX, {
+    chamar: async () => ({ texto: "resposta da IA", toolCalls: [] }),
+    enviar: async () => { enviou = true; return { messageid: "prov-1" }; },
+  });
+
+  assert.equal(enviou, false);
+  assert.equal(r.status, "pulado");
+  assert.equal(r.motivo, "pausada_durante_o_turno");
+});
+
 test("lead com nao_perturbe é pulado sem gastar token", async () => {
   const admin = adminDeConversa({
     "leads.select": {

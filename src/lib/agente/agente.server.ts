@@ -175,6 +175,19 @@ export async function executarTurno(
       const texto = resposta.texto?.trim();
       if (!texto) return { status: "erro", motivo: "modelo devolveu resposta vazia" };
 
+      // A checagem do início do turno já tem segundos de idade — a chamada ao
+      // modelo demora. Se o Pedro assumiu a conversa nesse intervalo, a
+      // resposta da IA não pode sair atrás da dele. Sobra a janela entre esta
+      // leitura e o POST para a UAZAPI, de milissegundos: aceitável.
+      const { data: conversaAgora } = await admin
+        .from("conversas")
+        .select("pausada_pela_ia")
+        .eq("id", ctx.conversaId)
+        .maybeSingle();
+      if (conversaAgora?.pausada_pela_ia) {
+        return { status: "pulado", motivo: "pausada_durante_o_turno" };
+      }
+
       const envio = await enviarTextoDoCrm(
         admin,
         {
