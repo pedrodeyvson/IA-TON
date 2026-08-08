@@ -7,9 +7,30 @@ import { PRODUTOS } from "./links.ts";
 const CTX = { leadId: "L1", conversaId: "C1" };
 const REF = "CEA4255F-0783-4EAD-AA55-48C682BA8FA7";
 
+/**
+ * Lead que JÁ respondeu alguma coisa — é o estado normal quando a IA chega a
+ * mandar link ou mover estágio. `mensagens.select` precisa vir preenchido
+ * porque `coletarEvidenciaDoLead` conta as falas do lead para decidir o teto
+ * de estágio e para liberar `registrar_link_enviado`.
+ */
 function adminComLead(estagio = "qualificando") {
   return criarAdminFake({
-    "leads.select": { data: { id: "L1", estagio }, error: null },
+    "leads.select": {
+      data: { id: "L1", estagio, maquina_interesse: "T3", link_enviado_em: null },
+      error: null,
+    },
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
+  });
+}
+
+/** Lead que só clicou no anúncio: a única "fala" é a saudação pronta do botão. */
+function adminSoComSaudacao() {
+  return criarAdminFake({
+    "leads.select": { data: { id: "L1", estagio: "novo" }, error: null },
+    "mensagens.select": {
+      data: [{ conteudo: "Olá! QUERO ADQUIRIR UMA MÁQUINA DA TON." }],
+      error: null,
+    },
   });
 }
 
@@ -160,6 +181,10 @@ test("registrar_link_enviado não manda o link quando o toque é recusado por n�
   process.env.TON_REFERRER = REF;
   const admin = criarAdminFake({
     "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    // A guarda de evidência roda antes da checagem de não-perturbe: sem uma
+    // fala real do lead, o link seria recusado por outro motivo e o teste
+    // deixaria de exercitar o que ele existe para exercitar.
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
     "conversas.select": { data: { id: "C1", leads: { nao_perturbe: true } }, error: null },
   });
   const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
@@ -175,6 +200,10 @@ test("registrar_link_enviado não manda o link quando não dá para confirmar o 
   process.env.TON_REFERRER = REF;
   const admin = criarAdminFake({
     "leads.select": { data: { id: "L1", estagio: "qualificando" }, error: null },
+    // A guarda de evidência roda antes da checagem de não-perturbe: sem uma
+    // fala real do lead, o link seria recusado por outro motivo e o teste
+    // deixaria de exercitar o que ele existe para exercitar.
+    "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
     "conversas.select": () => ({ data: null, error: { message: "conexão com o banco caiu" } }),
   });
   const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
@@ -255,4 +284,25 @@ test("tool desconhecida devolve erro ao modelo sem lançar", async () => {
   const admin = adminComLead();
   const r = await executarTool(admin, "deletar_banco", {}, CTX);
   assert.match(r.conteudo, /desconhecida/i);
+});
+
+// Regressão do buraco achado na revisão final: `registrar_link_enviado`
+// gravava link_enviado_em sem passar por evidência, e como
+// estagioMaximoPermitido lê esse campo, a tool DESCOBERTA levantava o teto da
+// tool travada. Além disso moverEstagio("link_enviado") dispara a cascata
+// inteira da CAPI: três conversões por um lead que nunca digitou nada.
+test("link não sai para lead que só clicou no anúncio, e nada é gravado", async () => {
+  const admin = adminSoComSaudacao();
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+
+  assert.match(r.conteudo, /ainda não respondeu nada/);
+  assert.doesNotMatch(r.conteudo, /https:\/\//, "não pode vazar link na recusa");
+  assert.equal(updateDe(admin, "leads"), undefined, "não pode mover estágio nem gravar comissão");
+  assert.equal(updateDe(admin, "conversas"), undefined, "não pode reiniciar ciclo");
+});
+
+test("uma resposta de verdade do lead libera o link", async () => {
+  const admin = adminComLead();
+  const r = await executarTool(admin, "registrar_link_enviado", { produto: "catalogo" }, CTX);
+  assert.match(r.conteudo, /https:\/\/ton\.com\.br\/catalogo/);
 });

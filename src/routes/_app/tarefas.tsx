@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { alternarTarefaDoCrm } from "@/lib/crm/crm.functions";
 import { conversaEmbutida, resumoDaLinha } from "@/components/crm/rotulos";
@@ -34,7 +35,7 @@ function TelaTarefas() {
   const { data: conversas = [], isPending: carregandoConversas } = useConversas();
 
   const concluir = useMutation({
-    mutationFn: (tarefaId: string) => alternarTarefaDoCrm({ data: { tarefaId, concluida: true } }),
+    mutationFn: (tarefaId: string) => comSessao(alternarTarefaDoCrm({ data: { tarefaId, concluida: true } })),
     // Sem otimismo a linha só sumiria no refetch seguinte, e o checkbox —
     // controlado por `checked={false}` — seria restaurado para desmarcado pelo
     // próprio React ainda dentro do evento. Removendo a tarefa do cache aqui, a

@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { comSessao } from "@/lib/auth/sessao-expirada";
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
 import {
   devolverParaIa,
   obterEstadoDaConversa,
+  marcarConversaLida,
   obterLeadDoCrm,
   pausarIaNaConversa,
 } from "@/lib/crm/crm.functions";
@@ -39,6 +41,20 @@ function TelaConversa() {
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
+  // Abrir a conversa zera o contador de não-lidas. `marcarConversaLida` existia
+  // desde a Task 8, com teste, e NUNCA era chamada: o único reset era dentro do
+  // `responderComoHumano`. Ou seja, ler a conversa não zerava nada — quando a
+  // Mika atendia bem e o operador só conferia, o badge crescia para sempre até
+  // virar ruído e o inbox perder a triagem.
+  useEffect(() => {
+    if (!conversaId) return;
+    comSessao(marcarConversaLida({ data: { conversaId } }))
+      .then(() => clienteQuery.invalidateQueries({ queryKey: ["conversas"] }))
+      // Best-effort: falhar em zerar o badge não pode quebrar a leitura da
+      // conversa, que é o que o operador veio fazer.
+      .catch(() => {});
+  }, [conversaId, clienteQuery]);
+
   const carregandoEstado = estadoConversa === undefined;
   // Enquanto não sabemos, assume IA ativa — e não o contrário. O estado
   // normal de uma conversa é a IA respondendo; pausada é a exceção, criada
@@ -51,7 +67,9 @@ function TelaConversa() {
 
   const alternarIa = useMutation({
     mutationFn: () =>
-      iaAtiva ? pausarIaNaConversa({ data: { conversaId } }) : devolverParaIa({ data: { conversaId } }),
+      comSessao(
+        iaAtiva ? pausarIaNaConversa({ data: { conversaId } }) : devolverParaIa({ data: { conversaId } }),
+      ),
     onSuccess: () => {
       clienteQuery.invalidateQueries({ queryKey: ["conversa", conversaId] });
       clienteQuery.invalidateQueries({ queryKey: ["conversas"] });

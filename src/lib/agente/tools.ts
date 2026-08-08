@@ -227,6 +227,26 @@ async function executarRegistrarLink(
   argumentos: Record<string, unknown>,
   ctx: ContextoTool,
 ): Promise<ResultadoTool> {
+  // Mandar link para quem não falou nada é o furo que a trava de `atualizar_lead`
+  // não cobria: esta tool grava `link_enviado_em` sem passar por evidência, e
+  // `estagioMaximoPermitido` lê exatamente esse campo — ou seja, a tool
+  // descoberta LEVANTAVA o teto da tool travada. Pior, `moverEstagio` para
+  // "link_enviado" dispara a cascata inteira da CAPI (LeadSubmitted +
+  // AddToCart + InitiateCheckout): três conversões para a Meta por um lead que
+  // nunca digitou uma palavra.
+  //
+  // Também é a regra comercial certa: link antes de qualquer resposta não
+  // vende, só queima o lead.
+  const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+  if (evidencia.respostasDoLead === 0) {
+    return {
+      conteudo:
+        "Erro: este lead ainda não respondeu nada — a saudação automática do botão do anúncio " +
+        "não conta. Nenhum link foi enviado. Faça UMA pergunta fechada e fácil de responder " +
+        "(CPF ou CNPJ? já usa maquininha hoje?) e só mande o link depois que ele responder.",
+    };
+  }
+
   const link = montarLink(argumentos.produto);
 
   if (!link.ok && link.erro === "produto_desconhecido") {

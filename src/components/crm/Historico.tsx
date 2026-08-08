@@ -24,7 +24,7 @@ export function Historico({ conversaId }: { conversaId: string }) {
   });
 
   const reenvio = useMutation({
-    mutationFn: (mensagemId: string) => reenviarMensagem({ data: { mensagemId } }),
+    mutationFn: (mensagemId: string) => comSessao(reenviarMensagem({ data: { mensagemId } })),
     onSuccess: () => clienteQuery.invalidateQueries({ queryKey: ["mensagens", conversaId] }),
   });
 

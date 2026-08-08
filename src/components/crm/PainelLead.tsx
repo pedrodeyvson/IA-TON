@@ -56,7 +56,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
     // `moverEstagio`, que a fatia 2 também usa.
     mutationFn: async (estagio: string) => {
       const eraOMesmo = lead?.estagio === estagio;
-      const resultado = await moverEstagioDoLead({ data: { leadId, estagio } });
+      const resultado = await comSessao(moverEstagioDoLead({ data: { leadId, estagio } }));
       if (!resultado?.ok && !eraOMesmo) {
         throw new Error("o servidor não aplicou a mudança de estágio");
       }
@@ -82,11 +82,11 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
     onSettled: recarregar,
   });
   const salvarCampo = useMutation({
-    mutationFn: (campos: Record<string, unknown>) => atualizarDadosDoLead({ data: { leadId, campos } }),
+    mutationFn: (campos: Record<string, unknown>) => comSessao(atualizarDadosDoLead({ data: { leadId, campos } })),
     onSuccess: recarregar,
   });
   const salvarNota = useMutation({
-    mutationFn: () => registrarNotaNoLead({ data: { leadId, texto: nota.trim() } }),
+    mutationFn: () => comSessao(registrarNotaNoLead({ data: { leadId, texto: nota.trim() } })),
     onSuccess: () => {
       setNota("");
       recarregar();
@@ -97,14 +97,14 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
     // throw a mutation "tem sucesso" com a atenção intacta e a linha de erro
     // abaixo nunca apareceria.
     mutationFn: async () => {
-      const resultado = await resolverAtencao({ data: { leadId } });
+      const resultado = await comSessao(resolverAtencao({ data: { leadId } }));
       if (!resultado.ok) throw new Error(resultado.erro ?? "falha ao resolver a atenção");
       return resultado;
     },
     onSuccess: recarregar,
   });
   const silenciar = useMutation({
-    mutationFn: () => alternarNaoPerturbe({ data: { leadId, conversaId, motivo: "marcado no inbox" } }),
+    mutationFn: () => comSessao(alternarNaoPerturbe({ data: { leadId, conversaId, motivo: "marcado no inbox" } })),
     onSuccess: recarregar,
   });
 

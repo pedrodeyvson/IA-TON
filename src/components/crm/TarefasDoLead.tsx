@@ -38,7 +38,7 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
   }
 
   const criar = useMutation({
-    mutationFn: () => criarTarefaDoCrm({ data: { leadId, titulo: titulo.trim() } }),
+    mutationFn: () => comSessao(criarTarefaDoCrm({ data: { leadId, titulo: titulo.trim() } })),
     onSuccess: () => {
       setTitulo("");
       recarregar();
@@ -46,7 +46,7 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
   });
   const alternar = useMutation({
     mutationFn: ({ tarefaId, concluida }: { tarefaId: string; concluida: boolean }) =>
-      alternarTarefaDoCrm({ data: { tarefaId, concluida } }),
+      comSessao(alternarTarefaDoCrm({ data: { tarefaId, concluida } })),
     // O checkbox é controlado por `tarefa.concluida`. Sem gravar o valor novo
     // no cache antes da requisição, o React reconcilia o input com o valor
     // antigo ainda no ciclo do evento e o marcador volta sozinho até a
@@ -66,7 +66,7 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
     onSettled: recarregar,
   });
   const excluir = useMutation({
-    mutationFn: (tarefaId: string) => excluirTarefaDoCrm({ data: { tarefaId } }),
+    mutationFn: (tarefaId: string) => comSessao(excluirTarefaDoCrm({ data: { tarefaId } })),
     onSuccess: recarregar,
   });
 
