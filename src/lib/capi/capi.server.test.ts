@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detalharErroMeta, enviarEventoCapi, sincronizarEventosCapi } from "./capi.server.ts";
+import { detalharErroMeta, enviarEventoCapi, listarDisparosCapi, sincronizarEventosCapi } from "./capi.server.ts";
 
 /**
  * Só cobre os dois caminhos testáveis sem rede: (1) config ausente degrada em
@@ -24,6 +24,7 @@ function criarAdminFake(linhasEventosCapi: any[] = []) {
       select() { if (!op) op = "select"; return self; },
       insert(obj: any) { op = "insert"; payload = obj; return self; },
       eq(coluna: string, valor: any) { filtros.push((row) => row[coluna] === valor); return self; },
+      order() { return self; },
       then(resolve: any) {
         const rows = tabelas[tabela] ?? (tabelas[tabela] = []);
         if (op === "insert") {
@@ -394,4 +395,64 @@ test("sincronizarEventosCapi: adSourceId sem ctwaClid não dispara — a Meta re
     (globalThis as any).fetch = originalFetch;
     limparEnvCapi();
   }
+});
+
+test("enviarEventoCapi grava payload e resposta no insert de sucesso", async () => {
+  const antesPixel = process.env.META_PIXEL_ID;
+  const antesToken = process.env.META_CAPI_TOKEN;
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
+  const restaurarFetch = stubFetch({ ok: true, status: 200, body: { events_received: 1, fbtrace_id: "trace-payload" } });
+  try {
+    const admin = criarAdminFake();
+    await enviarEventoCapi(admin, "lead-payload", "LeadSubmitted", { ctwaClid: "clid-1", telefone: "5511999999999" });
+
+    const linha = admin._tabelas.eventos_capi[0];
+    assert.equal(linha.payload?.data?.[0]?.event_name, "LeadSubmitted");
+    assert.ok(linha.payload?.data?.[0]?.user_data, "payload guarda o user_data mandado pra Meta");
+    assert.deepEqual(linha.resposta, { events_received: 1, fbtrace_id: "trace-payload" });
+  } finally {
+    restaurarFetch();
+    if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
+    if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
+  }
+});
+
+test("enviarEventoCapi grava payload e resposta mesmo quando a Meta responde erro", async () => {
+  const antesPixel = process.env.META_PIXEL_ID;
+  const antesToken = process.env.META_CAPI_TOKEN;
+  process.env.META_PIXEL_ID = "pixel-teste";
+  process.env.META_CAPI_TOKEN = "token-teste";
+  process.env.META_PAGE_ID = "pagina-teste";
+  const restaurarFetch = stubFetch({ ok: false, status: 400, body: { error: { message: "Invalid parameter", error_subcode: 2804116 } } });
+  try {
+    const admin = criarAdminFake();
+    await enviarEventoCapi(admin, "lead-erro", "LeadSubmitted", { ctwaClid: "clid-1" });
+
+    const linha = admin._tabelas.eventos_capi[0];
+    assert.equal(linha.payload?.data?.[0]?.event_name, "LeadSubmitted", "payload gravado mesmo em erro");
+    // resposta é o JSON CRU que a Meta devolveu — status_resposta (já
+    // existente) é que guarda a string formatada de detalharErroMeta.
+    assert.deepEqual(linha.resposta, { error: { message: "Invalid parameter", error_subcode: 2804116 } });
+    assert.ok(linha.status_resposta.startsWith("erro:400:"));
+  } finally {
+    restaurarFetch();
+    if (antesPixel === undefined) delete process.env.META_PIXEL_ID; else process.env.META_PIXEL_ID = antesPixel;
+    if (antesToken === undefined) delete process.env.META_CAPI_TOKEN; else process.env.META_CAPI_TOKEN = antesToken;
+    delete process.env.META_PAGE_ID;
+  }
+});
+
+test("listarDisparosCapi devolve os disparos do lead", async () => {
+  const admin = criarAdminFake([
+    { id: "e1", lead_id: "lead-1", nome_evento: "LeadSubmitted", enviado_em: "2026-08-08T10:00:00Z", status_resposta: "ok", payload: { a: 1 }, resposta: { b: 2 } },
+    { id: "e2", lead_id: "lead-2", nome_evento: "AddToCart", enviado_em: "2026-08-08T11:00:00Z", status_resposta: "ok", payload: {}, resposta: {} },
+  ]);
+  const r = await listarDisparosCapi(admin, "lead-1");
+  assert.equal(r.length, 1);
+  assert.equal(r[0].nome_evento, "LeadSubmitted");
+  assert.deepEqual(r[0].payload, { a: 1 });
+  assert.deepEqual(r[0].resposta, { b: 2 });
 });

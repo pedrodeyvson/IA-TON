@@ -146,6 +146,15 @@ export const marcarConversaLida = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const listarDisparosCapiDoLead = createServerFn({ method: "GET" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porLead.parse(dados))
+  .handler(async ({ data }): Promise<any[]> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { listarDisparosCapi } = await import("../capi/capi.server.ts");
+    return listarDisparosCapi(supabaseAdmin, data.leadId);
+  });
+
 export const resolverAtencao = createServerFn({ method: "POST" })
   .middleware([registrarErros, exigirSessao])
   .validator((dados: unknown) => porLead.parse(dados))

@@ -107,6 +107,7 @@ export async function enviarEventoCapi(
   }
 
   const eventId = crypto.randomUUID();
+  let payloadParaGravar: any = null;
 
   try {
     const userData = await construirUserDataHasheado({
@@ -125,6 +126,7 @@ export async function enviarEventoCapi(
       customData: dadosCustom,
       testEventCode: process.env.META_CAPI_TEST_CODE,
     });
+    payloadParaGravar = payload;
 
     const url = `${META_CAPI_URL}/${pixelId}/events?access_token=${encodeURIComponent(token)}`;
     const res = await fetch(url, {
@@ -154,6 +156,8 @@ export async function enviarEventoCapi(
         event_id: eventId,
         enviado_em: new Date().toISOString(),
         status_resposta: statusResposta,
+        payload,
+        resposta: parsed ?? { texto_cru: texto.slice(0, 500) },
       });
     } catch (err: any) {
       console.warn(`[capi] falha ao gravar registro de ${eventName} para lead ${leadId}:`, err?.message ?? err);
@@ -176,6 +180,7 @@ export async function enviarEventoCapi(
         event_id: eventId,
         enviado_em: new Date().toISOString(),
         status_resposta: `erro:exceção:${String(err?.message ?? err).slice(0, 200)}`,
+        payload: payloadParaGravar ?? null,
       });
     } catch { /* best-effort — não pode quebrar o fluxo principal */ }
     return { ok: false, eventId, error: err?.message ?? "Erro desconhecido" };
@@ -256,4 +261,19 @@ export async function sincronizarEventosCapi(
   } catch (err: any) {
     console.warn(`[capi] falha ao sincronizar eventos do lead ${leadId}:`, err?.message ?? err);
   }
+}
+
+/**
+ * Disparos CAPI de um lead, mais recente primeiro — para o painel mostrar o
+ * que foi mandado e o que a Meta respondeu. Só para o dono (a chamada em
+ * crm.functions.ts já está atrás de exigirSessao): o payload carrega
+ * ph/external_id hasheados e o ctwa_clid em texto puro.
+ */
+export async function listarDisparosCapi(admin: any, leadId: string): Promise<any[]> {
+  const { data } = await admin
+    .from("eventos_capi")
+    .select("id, nome_evento, event_id, enviado_em, status_resposta, payload, resposta")
+    .eq("lead_id", leadId)
+    .order("enviado_em", { ascending: false, nullsFirst: false });
+  return data ?? [];
 }

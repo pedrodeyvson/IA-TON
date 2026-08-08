@@ -5,6 +5,7 @@ import { ESTAGIOS } from "@/lib/crm/estagios";
 import {
   alternarNaoPerturbe,
   atualizarDadosDoLead,
+  listarDisparosCapiDoLead,
   moverEstagioDoLead,
   obterLeadDoCrm,
   registrarNotaNoLead,
@@ -36,6 +37,12 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
   const { data: lead } = useQuery({
     queryKey: ["lead", leadId],
     queryFn: () => comSessao(obterLeadDoCrm({ data: { leadId } })),
+    enabled: Boolean(leadId),
+  });
+
+  const disparosQuery = useQuery({
+    queryKey: ["disparos-capi", leadId],
+    queryFn: () => comSessao(listarDisparosCapiDoLead({ data: { leadId } })),
     enabled: Boolean(leadId),
   });
 
@@ -218,6 +225,35 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
           <p className="text-[var(--color-suave)]">{lead.ad_title ?? "sem título"}</p>
           <p className="text-xs text-[var(--color-suave)]">ID: {lead.ad_source_id}</p>
         </div>
+      )}
+
+      {(disparosQuery.data?.length ?? 0) > 0 && (
+        <details className="rounded bg-[var(--color-painel)] p-2">
+          <summary className="cursor-pointer">
+            <strong>Disparos CAPI (Meta)</strong>{" "}
+            <span className="text-xs text-[var(--color-suave)]">
+              {disparosQuery.data!.length} evento(s)
+            </span>
+          </summary>
+          <ul className="mt-2 flex flex-col gap-2 text-xs">
+            {disparosQuery.data!.map((d: any) => (
+              <li key={d.id} className="rounded border border-[var(--color-borda)] p-2">
+                <div className="flex justify-between">
+                  <strong>{d.nome_evento}</strong>
+                  <span className={d.status_resposta === "ok" ? "" : "text-[var(--color-alerta)]"}>
+                    {d.status_resposta === "ok" ? "ok" : d.status_resposta}
+                  </span>
+                </div>
+                <details>
+                  <summary className="cursor-pointer text-[var(--color-suave)]">payload/resposta</summary>
+                  <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify({ payload: d.payload, resposta: d.resposta }, null, 2)}
+                  </pre>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <div className="flex flex-col gap-1">
