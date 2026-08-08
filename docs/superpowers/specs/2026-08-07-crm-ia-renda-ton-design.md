@@ -15,6 +15,22 @@ qualifica, tira dúvidas, contorna objeções e conduz até o uso do link de ind
 funcionando como consultor virtual 24h, com Pedro podendo assumir qualquer conversa a
 qualquer momento.
 
+## Decisões revisadas em 07/08/2026 (depois do início da implementação)
+
+Estas substituem o que estiver em conflito nas seções abaixo:
+
+- **Fornecedor de IA: apenas OpenAI.** O spec original propunha Claude para o agente e
+  deixava embeddings em aberto. O dono do projeto optou por consolidar num único
+  fornecedor — uma fatura, um SDK, uma chave. O agente da Fatia 2 e os embeddings da
+  Fatia 3 usam OpenAI. `ANTHROPIC_API_KEY` sai do projeto.
+- **Hospedagem: GitHub + EasyPanel** (self-hosted), não Vercel. Implica `Dockerfile`
+  próprio e configuração de porta/host — trabalho não previsto no plano da Fatia 1.
+- **Webhook da UAZAPI é por instância, NUNCA global.** O servidor UAZAPI hospeda
+  instâncias de outros projetos; um webhook global as afetaria todas. A configuração é
+  feita no painel da própria instância, apontando para
+  `https://<dominio>/api/public/uazapi?secret=<segredo>`. Consequência: o código não usa
+  `admintoken` e não expõe função de webhook global.
+
 ## Decisões fixadas
 
 - **Projeto novo e independente** — não é módulo de CPI, CPI-DMI, FINANCEIRO nem SISTEMA

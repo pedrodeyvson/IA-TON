@@ -1,0 +1,17 @@
+{
+  "event": "messages",
+  "instance": "cpi-principal",
+  "data": {
+    "id": "rBBBB222",
+    "messageid": "3EB0CTWA99",
+    "chatid": "5511911112222@s.whatsapp.net",
+    "sender": "5511911112222@s.whatsapp.net",
+    "senderName": "Lead Anuncio",
+    "isGroup": false,
+    "fromMe": false,
+    "messageType": "extendedTextMessage",
+    "text": "Vim pelo anúncio",
+    "messageTimestamp": 1752000100,
+    "content": "{\"key\":{\"remoteJid\":\"5511911112222@s.whatsapp.net\",\"fromMe\":false,\"id\":\"3EB0CTWA99\"},\"message\":{\"extendedTextMessage\":{\"text\":\"Vim pelo anúncio\",\"contextInfo\":{\"externalAdReply\":{\"title\":\"Promoção CPI\",\"body\":\"Clique e fale conosco\",\"mediaType\":1,\"sourceType\":\"ad\",\"sourceId\":\"120200000000000000\",\"sourceUrl\":\"https://fb.me/xyz\",\"showAdAttribution\":true,\"ctwaClid\":\"AfeXAMPLE_ctwa_clid_1234567890abcdef\"}}}},\"pushName\":\"Lead Anuncio\"}"
+  }
+}

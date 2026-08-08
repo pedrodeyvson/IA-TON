@@ -1,0 +1,33 @@
+{
+  "event": "messages",
+  "EventType": "history",
+  "instanceName": "teste-11549764",
+  "owner": "551199990000",
+  "token": "00000000-0000-0000-0000-000000000000",
+  "BaseUrl": "https://exemplo.uazapi.com",
+  "messages": [
+    {
+      "id": "551199990000:2A330494828B9C34C70D",
+      "text": "Obrigadaaa",
+      "type": "text",
+      "owner": "551199990000",
+      "chatid": "551199990001@s.whatsapp.net",
+      "fromMe": false,
+      "sender": "551199990001@s.whatsapp.net",
+      "source": "unknown",
+      "status": "Delivered",
+      "content": "Obrigadaaa",
+      "isGroup": false,
+      "track_id": "11111111-2222-3333-4444-555555555555",
+      "mediaType": "",
+      "messageid": "2A330494828B9C34C70D",
+      "sender_pn": "551199990001@s.whatsapp.net",
+      "senderName": "",
+      "sender_lid": "100000000000001@lid",
+      "messageType": "Conversation",
+      "track_source": "history_sync_manual",
+      "wasSentByApi": false,
+      "messageTimestamp": 1777816654000
+    }
+  ]
+}

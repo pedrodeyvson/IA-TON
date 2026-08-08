@@ -18,11 +18,16 @@ Estes valem para **todas** as tarefas:
 - **Testes:** `node --test --experimental-strip-types "src/**/*.test.ts"`. O loader ESM nativo **não resolve o alias `@/`** e **exige extensão `.ts` explícita** nos imports. Todo módulo que tem teste importa somente por caminho relativo com `.ts`.
 - **Migrations** são aplicadas via MCP `mcp__plugin_supabase_supabase__apply_migration`. Migration aplicada nunca é editada — correção sempre em migration nova.
 - **Nomes de coluna são neutros quanto ao provider:** `provider_message_id`, nunca `uazapi_message_id` ou `evolution_message_id`.
+- **Objetos de banco vivem em `public`**, no schema padrão — o projeto Supabase é dedicado a este sistema, então não há com o que colidir. Funções usam `set search_path = public`.
 - **Campos de `contextInfo` são não documentados** e podem sumir: todo acesso usa optional chaining, toda coluna é nullable.
 - **Grafia crítica:** `sourceID` e `sourceURL` — **maiúsculas** no final. Não é `sourceId`/`sourceUrl`.
 - Toda mensagem de erro voltada ao usuário é em português.
 
-**Pré-requisito externo (fazer antes da Tarefa 6):** criar um projeto Supabase novo e dedicado (não reutilizar os projetos do CPI ou do EBX). Guardar `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `SUPABASE_SERVICE_ROLE_KEY`.
+**Projeto Supabase (decidido em 07/08/2026):** `fqnvwrhetpnwsxqfwxnf` (nome "TON CRM IA", região sa-east-1, organização `vyyuegptcmiqfywkmxly`). Dedicado a este sistema — nenhum outro projeto compartilha este banco.
+
+> Histórico: cogitou-se reutilizar o projeto `dzpawynpyhqytmwihyrd` ("IA_CRM"), mas ele hospeda outro sistema em produção cujo `public` tem 36 tabelas vivas — incluindo uma `webhook_events` que colidiria com a nossa. Optou-se por um banco dedicado.
+
+**Hospedagem:** Vercel, projeto `ebx/ia-ton` → `ia-ton.vercel.app`, ligado ao repo `github.com/pedrodeyvson/IA-TON`, deploy automático da branch `main`.
 
 ---
 
@@ -752,6 +757,7 @@ git commit -m "feat: extração de atribuição de anúncio do contextInfo"
 -- Uso individual: um único operador (o consultor). Não há multi-tenancy — a RLS
 -- só separa "usuário autenticado" de "anônimo", e o service_role do webhook
 -- passa por cima dela para poder gravar mensagens de quem ainda não é usuário.
+--
 
 -- Espelha em SQL a normalização de telefone feita em src/lib/telefone.ts.
 -- IMMUTABLE porque é usada em índice.
@@ -989,7 +995,7 @@ git commit -m "feat: schema da fundação com RLS, triggers e realtime"
 
 - [ ] **Step 1: Gerar os tipos do banco**
 
-Usar `mcp__plugin_supabase_supabase__generate_typescript_types` e salvar o resultado em `src/integrations/supabase/types.ts`.
+Usar `mcp__plugin_supabase_supabase__generate_typescript_types` e salvar o resultado em `src/integrations/supabase/types.ts`. 
 
 - [ ] **Step 2: Implementar o cliente do browser**
 

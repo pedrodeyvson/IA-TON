@@ -1,0 +1,11 @@
+{
+  "EventType": "messages",
+  "instanceName": "ton-consultor",
+  "message": {
+    "messageid": "3EB0C767D26A8B4F1A2B",
+    "fromMe": false,
+    "messageTimestamp": 1754582400,
+    "key": { "remoteJid": "5511987654321@s.whatsapp.net", "id": "3EB0C767D26A8B4F1A2B" },
+    "content": { "conversation": "Oi, queria saber sobre a maquininha" }
+  }
+}
