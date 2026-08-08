@@ -11,7 +11,7 @@
 // nossa, via a tabela `eventos_capi` (lead_id + nome_evento + status_resposta
 // = "ok"). Best-effort: nunca lança exceção — falha do CAPI não pode custar
 // o processamento da mensagem/lead que originou o evento.
-import { jaFoiEnviado, type EventoCapi } from "./capi.constants.ts";
+import { jaFoiEnviado, eventosParaDisparar, type EventoCapi } from "./capi.constants.ts";
 import { construirUserDataHasheado, montarPayloadEvento, type DadosCustomCapi } from "./hash.ts";
 
 const META_API_VERSION = "v21.0";
@@ -141,5 +141,79 @@ export async function enviarEventoCapi(
       });
     } catch { /* best-effort — não pode quebrar o fluxo principal */ }
     return { ok: false, eventId, error: err?.message ?? "Erro desconhecido" };
+  }
+}
+
+export type DadosParaSincronizar = {
+  /** Presença de ctwaClid OU adSourceId é o que decide se o lead tem
+   *  atribuição de anúncio. Sem nenhum dos dois, é lead orgânico — a Meta
+   *  não tem como atribuir a conversão, e não faz sentido nem consultar o
+   *  banco. */
+  ctwaClid?: string | null;
+  adSourceId?: string | null;
+  telefone?: string | null;
+  nome?: string | null;
+  /** BRL. Ausente cai no padrão de COMISSAO_PADRAO_BRL, se configurado. */
+  comissaoEstimada?: number | null;
+};
+
+/**
+ * Dispara, em ordem de cascata, os eventos que faltam para o estágio atual
+ * do lead. Chamada em dois lugares: (1) por moverEstagio, na hora da
+ * transição; (2) pelo ingest.server.ts a cada mensagem nova do lead — é o
+ * self-healing, porque um evento que falhou numa tentativa anterior é
+ * retentado sem precisar de uma nova transição de estágio.
+ *
+ * Para na cascata assim que um evento falhar: não teria sentido tentar
+ * Purchase se InitiateCheckout ainda não saiu, e a próxima chamada (próxima
+ * mensagem do lead, ou próxima transição) retoma dali. É a correção
+ * deliberada do bug do CPI, onde o agendamento é limpo mesmo com falha e um
+ * Purchase que não saiu nunca mais é tentado.
+ *
+ * Nunca lança — best-effort, como toda a integração de CAPI.
+ */
+export async function sincronizarEventosCapi(
+  admin: any,
+  leadId: string,
+  estagioAtual: string,
+  dados: DadosParaSincronizar,
+): Promise<void> {
+  if (!dados.ctwaClid && !dados.adSourceId) return;
+
+  try {
+    const { data: existentes } = await admin
+      .from("eventos_capi")
+      .select("nome_evento, status_resposta")
+      .eq("lead_id", leadId);
+
+    const jaEnviados = (existentes ?? [])
+      .filter((r: any) => r.status_resposta === "ok")
+      .map((r: any) => r.nome_evento);
+
+    const pendentes = eventosParaDisparar(estagioAtual, jaEnviados);
+    const valorPadrao = Number(process.env.COMISSAO_PADRAO_BRL ?? "");
+    const valorPurchase =
+      dados.comissaoEstimada ?? (Number.isFinite(valorPadrao) && valorPadrao > 0 ? valorPadrao : undefined);
+
+    for (const { evento } of pendentes) {
+      const customData =
+        evento === "Purchase"
+          ? { value: valorPurchase, currency: "BRL", source_id: dados.adSourceId ?? undefined }
+          : dados.adSourceId
+            ? { source_id: dados.adSourceId }
+            : undefined;
+
+      const resultado = await enviarEventoCapi(
+        admin,
+        leadId,
+        evento,
+        { ctwaClid: dados.ctwaClid, telefone: dados.telefone, nome: dados.nome },
+        customData,
+      );
+
+      if (!resultado.ok) break;
+    }
+  } catch (err: any) {
+    console.warn(`[capi] falha ao sincronizar eventos do lead ${leadId}:`, err?.message ?? err);
   }
 }

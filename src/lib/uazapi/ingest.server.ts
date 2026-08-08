@@ -209,6 +209,30 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     }
   }
 
+  // Self-healing: retenta qualquer evento CAPI que tenha ficado pendente de
+  // uma etapa anterior, a cada mensagem nova do lead — não depende de uma
+  // transição de estágio acontecer agora. Best-effort, mesmo princípio do
+  // LeadSubmitted acima.
+  try {
+    const { sincronizarEventosCapi } = await import("../capi/capi.server.ts");
+    const leadAtual = await admin
+      .from("leads")
+      .select("estagio, ctwa_clid, ad_source_id, telefone, nome, comissao_estimada")
+      .eq("id", alvo.leadId)
+      .maybeSingle();
+    if (leadAtual.data) {
+      await sincronizarEventosCapi(admin, alvo.leadId, leadAtual.data.estagio, {
+        ctwaClid: leadAtual.data.ctwa_clid,
+        adSourceId: leadAtual.data.ad_source_id,
+        telefone: leadAtual.data.telefone,
+        nome: leadAtual.data.nome,
+        comissaoEstimada: leadAtual.data.comissao_estimada,
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[ingest] self-healing de CAPI falhou para lead ${alvo.leadId}:`, err?.message ?? err);
+  }
+
   let mediaPath: string | null = null;
   let transcricao: string | null = null;
   let transcricaoStatus: string | null = null;
@@ -276,6 +300,46 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
     // Idempotência camada 2: corrida entre duas entregas do mesmo webhook.
     if ((error as any).code === "23505") return { status: "duplicate" };
     return { status: "error", error: error.message };
+  }
+
+  // Acorda o agente. Best-effort: uma falha aqui não pode custar a mensagem
+  // que já foi gravada — no pior caso o lead fica sem resposta automática e
+  // aparece como não lido para o Pedro.
+  try {
+    const { deveAgendarResposta } = await import("./deve-agendar.ts");
+    const { agendarResposta } = await import("../crm/conversas.server.ts");
+
+    const { data: estado } = await admin
+      .from("conversas")
+      .select("pausada_pela_ia, leads(precisa_atencao)")
+      .eq("id", alvo.conversaId)
+      .maybeSingle();
+
+    // `leads` pode vir como objeto ou como array dependendo de como o
+    // Postgrest resolve a FK conversas.lead_id -> leads.id — trata os dois
+    // formatos em vez de assumir um só (ver Passo 6 do relatório da Task 7).
+    const leadRelacionado = Array.isArray((estado as any)?.leads)
+      ? (estado as any)?.leads?.[0]
+      : (estado as any)?.leads;
+
+    const contexto = {
+      direcao: msg.direcao as "in" | "out",
+      pausada: Boolean(estado?.pausada_pela_ia),
+      precisaAtencao: Boolean(leadRelacionado?.precisa_atencao),
+      agenteAtivo: process.env.AGENTE_ATIVO !== "false",
+    };
+
+    if (deveAgendarResposta(contexto)) {
+      const atraso = Number(process.env.AGENTE_DEBOUNCE_MS) || 8000;
+      const resultado = await agendarResposta(admin, alvo.conversaId, atraso);
+      if (!resultado.agendado) {
+        console.warn(
+          `[ingest] agendamento recusado para a conversa ${alvo.conversaId}: ${resultado.motivo}`,
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[ingest] falha ao agendar resposta da conversa ${alvo.conversaId}:`, err?.message ?? err);
   }
 
   return { status: "ok", leadId: alvo.leadId };

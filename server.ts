@@ -82,4 +82,18 @@ Bun.serve({
   },
 });
 
+// Loop do agente. Só sobe em produção real: exige service role para escrever no
+// banco ignorando RLS, e não deve rodar em build/preview.
+if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.AGENTE_ATIVO !== "false") {
+  try {
+    const { supabaseAdmin } = await import("./src/integrations/supabase/client.server.ts");
+    const { iniciarLoop } = await import("./src/lib/worker/loop.server.ts");
+    iniciarLoop(supabaseAdmin);
+  } catch (error) {
+    console.error("[server] falha ao iniciar o loop do agente:", error);
+  }
+} else {
+  console.log("[server] loop do agente NÃO iniciado (sem service role ou AGENTE_ATIVO=false)");
+}
+
 console.log(`TON-CRM-IA ouvindo em http://${HOST}:${PORT}`);

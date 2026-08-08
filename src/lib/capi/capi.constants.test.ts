@@ -30,9 +30,9 @@ test("ORDEM_FUNIL é a ordem esperada dos 7 estágios que participam do funil (p
 
 test("ESTAGIO_EVENTO_MAP mapeia só 4 estágios para evento, igual à constraint de eventos_capi", () => {
   assert.equal(ESTAGIO_EVENTO_MAP["novo"], "LeadSubmitted");
-  assert.equal(ESTAGIO_EVENTO_MAP["qualificando"], "QualifiedLead");
-  assert.equal(ESTAGIO_EVENTO_MAP["apresentando_solucao"], null);
-  assert.equal(ESTAGIO_EVENTO_MAP["contornando_objecao"], null);
+  assert.equal(ESTAGIO_EVENTO_MAP["qualificando"], null);
+  assert.equal(ESTAGIO_EVENTO_MAP["apresentando_solucao"], "AddToCart");
+  assert.equal(ESTAGIO_EVENTO_MAP["contornando_objecao"], "AddToCart");
   assert.equal(ESTAGIO_EVENTO_MAP["link_enviado"], "InitiateCheckout");
   assert.equal(ESTAGIO_EVENTO_MAP["acompanhamento"], null);
   assert.equal(ESTAGIO_EVENTO_MAP["convertido"], "Purchase");
@@ -40,7 +40,7 @@ test("ESTAGIO_EVENTO_MAP mapeia só 4 estágios para evento, igual à constraint
 });
 
 test("EVENTOS_CAPI_VALIDOS bate exatamente com a constraint check de eventos_capi.nome_evento", () => {
-  assert.deepEqual([...EVENTOS_CAPI_VALIDOS], ["LeadSubmitted", "QualifiedLead", "InitiateCheckout", "Purchase"]);
+  assert.deepEqual([...EVENTOS_CAPI_VALIDOS], ["LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase"]);
 });
 
 test("todo evento do mapeamento é aceito em business_messaging", () => {
@@ -52,7 +52,7 @@ test("todo evento do mapeamento é aceito em business_messaging", () => {
 
 test("resolverEventoEstagio: estágio fora do funil ou desconhecido não tem evento", () => {
   assert.equal(resolverEventoEstagio("perdido"), null);
-  assert.equal(resolverEventoEstagio("apresentando_solucao"), null);
+  assert.equal(resolverEventoEstagio("qualificando"), null);
   assert.equal(resolverEventoEstagio("xpto"), null);
 });
 
@@ -61,17 +61,21 @@ test("resolverEventoEstagio: estágios mapeados resolvem o evento certo", () => 
   assert.equal(resolverEventoEstagio("convertido"), "Purchase");
 });
 
-test("resolverCascataEventos: novo->link_enviado inclui LeadSubmitted, QualifiedLead e InitiateCheckout", () => {
-  assert.deepEqual(resolverCascataEventos("link_enviado"), [
+test("resolverCascataEventos: novo->link_enviado inclui LeadSubmitted, AddToCart e InitiateCheckout", () => {
+  const r = resolverCascataEventos("link_enviado");
+  assert.deepEqual(r, [
     { estagio: "novo", evento: "LeadSubmitted" },
-    { estagio: "qualificando", evento: "QualifiedLead" },
+    { estagio: "apresentando_solucao", evento: "AddToCart" },
     { estagio: "link_enviado", evento: "InitiateCheckout" },
   ]);
 });
 
-test("resolverCascataEventos: cascata completa novo->convertido dispara os 4 eventos em ordem", () => {
-  assert.deepEqual(resolverCascataEventos("convertido").map((x) => x.evento), [
-    "LeadSubmitted", "QualifiedLead", "InitiateCheckout", "Purchase",
+test("resolverCascataEventos: cascata completa novo->convertido dispara os 4 eventos em ordem, sem repetir AddToCart", () => {
+  const r = resolverCascataEventos("convertido");
+  // apresentando_solucao E contornando_objecao mapeiam pro mesmo AddToCart —
+  // a cascata pega o evento na primeira etapa que o produz e não repete.
+  assert.deepEqual(r.map((x) => x.evento), [
+    "LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase",
   ]);
 });
 
@@ -80,21 +84,26 @@ test("resolverCascataEventos: destino fora do funil (perdido/desconhecido) => []
   assert.deepEqual(resolverCascataEventos("xpto"), []);
 });
 
+test("qualificando não dispara evento próprio — ainda é a coluna Novo do Kanban", () => {
+  const r = resolverCascataEventos("qualificando");
+  assert.deepEqual(r, [{ estagio: "novo", evento: "LeadSubmitted" }]);
+});
+
 test("eventosParaDisparar: pula evento já enviado por nome (LeadSubmitted do ingest)", () => {
   const r = eventosParaDisparar("link_enviado", ["LeadSubmitted"]);
   assert.deepEqual(r, [
-    { estagio: "qualificando", evento: "QualifiedLead" },
+    { estagio: "apresentando_solucao", evento: "AddToCart" },
     { estagio: "link_enviado", evento: "InitiateCheckout" },
   ]);
 });
 
 test("eventosParaDisparar: lead que pula direto para convertido dispara a cascata inteira", () => {
   const r = eventosParaDisparar("convertido", []);
-  assert.deepEqual(r.map((x) => x.evento), ["LeadSubmitted", "QualifiedLead", "InitiateCheckout", "Purchase"]);
+  assert.deepEqual(r.map((x) => x.evento), ["LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase"]);
 });
 
 test("eventosParaDisparar: nada a disparar quando a cascata inteira já saiu", () => {
-  const r = eventosParaDisparar("convertido", ["LeadSubmitted", "QualifiedLead", "InitiateCheckout", "Purchase"]);
+  const r = eventosParaDisparar("convertido", ["LeadSubmitted", "AddToCart", "InitiateCheckout", "Purchase"]);
   assert.deepEqual(r, []);
 });
 

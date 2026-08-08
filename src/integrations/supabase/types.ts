@@ -17,24 +17,48 @@ export type Database = {
       conversas: {
         Row: {
           assumida_em: string | null
+          ciclo_pausado_ate: string | null
           criado_em: string
+          followup_enviado: boolean
+          followup_toque: number
           id: string
           lead_id: string
+          motivo_agendamento: string | null
           pausada_pela_ia: boolean
+          processando_em: string | null
+          responder_em: string | null
+          tentativas: number
+          ultimo_erro: string | null
         }
         Insert: {
           assumida_em?: string | null
+          ciclo_pausado_ate?: string | null
           criado_em?: string
+          followup_enviado?: boolean
+          followup_toque?: number
           id?: string
           lead_id: string
+          motivo_agendamento?: string | null
           pausada_pela_ia?: boolean
+          processando_em?: string | null
+          responder_em?: string | null
+          tentativas?: number
+          ultimo_erro?: string | null
         }
         Update: {
           assumida_em?: string | null
+          ciclo_pausado_ate?: string | null
           criado_em?: string
+          followup_enviado?: boolean
+          followup_toque?: number
           id?: string
           lead_id?: string
+          motivo_agendamento?: string | null
           pausada_pela_ia?: boolean
+          processando_em?: string | null
+          responder_em?: string | null
+          tentativas?: number
+          ultimo_erro?: string | null
         }
         Relationships: [
           {
@@ -130,10 +154,14 @@ export type Database = {
           criado_em: string
           ctwa_clid: string | null
           estagio: string
+          estagio_alterado_em: string | null
           external_id: string | null
           id: string
+          link_enviado_em: string | null
           maquina_interesse: string | null
+          motivo_perdido: string | null
           nao_lidas: number
+          nao_perturbe: boolean
           nome: string | null
           origem: string | null
           precisa_atencao: boolean
@@ -156,10 +184,14 @@ export type Database = {
           criado_em?: string
           ctwa_clid?: string | null
           estagio?: string
+          estagio_alterado_em?: string | null
           external_id?: string | null
           id?: string
+          link_enviado_em?: string | null
           maquina_interesse?: string | null
+          motivo_perdido?: string | null
           nao_lidas?: number
+          nao_perturbe?: boolean
           nome?: string | null
           origem?: string | null
           precisa_atencao?: boolean
@@ -182,10 +214,14 @@ export type Database = {
           criado_em?: string
           ctwa_clid?: string | null
           estagio?: string
+          estagio_alterado_em?: string | null
           external_id?: string | null
           id?: string
+          link_enviado_em?: string | null
           maquina_interesse?: string | null
+          motivo_perdido?: string | null
           nao_lidas?: number
+          nao_perturbe?: boolean
           nome?: string | null
           origem?: string | null
           precisa_atencao?: boolean
@@ -211,6 +247,7 @@ export type Database = {
           provider_message_id: string | null
           raw: Json | null
           remetente: string
+          status: string
           timestamp_ms: number
           tipo: string
           transcricao: string | null
@@ -229,6 +266,7 @@ export type Database = {
           provider_message_id?: string | null
           raw?: Json | null
           remetente: string
+          status?: string
           timestamp_ms?: number
           tipo: string
           transcricao?: string | null
@@ -247,6 +285,7 @@ export type Database = {
           provider_message_id?: string | null
           raw?: Json | null
           remetente?: string
+          status?: string
           timestamp_ms?: number
           tipo?: string
           transcricao?: string | null
@@ -262,6 +301,50 @@ export type Database = {
           },
           {
             foreignKeyName: "mensagens_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tarefas: {
+        Row: {
+          atualizado_em: string
+          concluida: boolean
+          concluida_em: string | null
+          criado_em: string
+          descricao: string | null
+          id: string
+          lead_id: string
+          prazo: string | null
+          titulo: string
+        }
+        Insert: {
+          atualizado_em?: string
+          concluida?: boolean
+          concluida_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lead_id: string
+          prazo?: string | null
+          titulo: string
+        }
+        Update: {
+          atualizado_em?: string
+          concluida?: boolean
+          concluida_em?: string | null
+          criado_em?: string
+          descricao?: string | null
+          id?: string
+          lead_id?: string
+          prazo?: string | null
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tarefas_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"

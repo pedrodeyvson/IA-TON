@@ -3,21 +3,24 @@
 //
 // Replicado de CPI (src/lib/meta-capi.constants.ts), adaptado ao nosso modelo:
 // uso individual, sem organizações, sem multi-tenancy, e com os NOSSOS 8
-// estágios de lead (public.leads.estagio) em vez dos 4 do CPI.
+// estágios de lead (public.leads.estagio) mapeados às 4 colunas do Kanban do
+// dono (Novo/Qualificado/Interesse/Venda) em vez dos 4 estágios do CPI.
 //
 // A Meta recusa `Lead`, `Contact`, `Schedule`, `CompleteRegistration` e
 // `SubmitApplication` em business_messaging (catálogo fechado — só valem
 // nomes específicos ou eventos custom). O CPI validou contra a API real que
-// `LeadSubmitted` (nome custom) e os padrão `QualifiedLead`, `InitiateCheckout`,
+// `LeadSubmitted` (nome custom) e os padrão `AddToCart`, `InitiateCheckout`,
 // `Purchase` são aceitos. Ver docs/superpowers/sdd/2026-08-07-fatia-1-fundacao-webhook/capi-report.md.
+// `QualifiedLead` foi trocado por `AddToCart` na migration 20260808c_capi_addtocart.sql —
+// decisão do dono, para bater com a coluna "Qualificado" do Kanban de 4 colunas.
 //
-// A tabela `eventos_capi` (migration 20260807_fundacao.sql) já restringe
+// A tabela `eventos_capi` (migration 20260808c_capi_addtocart.sql) restringe
 // `nome_evento` a exatamente esses 4 nomes — o mapeamento abaixo foi desenhado
-// para caber nessa constraint sem precisar de migration nova.
+// para caber nessa constraint.
 
 export const EVENTOS_CAPI_VALIDOS = [
   "LeadSubmitted",
-  "QualifiedLead",
+  "AddToCart",
   "InitiateCheckout",
   "Purchase",
 ] as const;
@@ -47,17 +50,18 @@ export const ORDEM_FUNIL: EstagioLead[] = [
   "convertido",
 ];
 
-/** Mapeamento etapa -> evento CAPI. FIXO — não é configurável.
- *  `apresentando_solucao`, `contornando_objecao` e `acompanhamento` não têm
- *  evento próprio: são refinamentos de qualificação/negociação que não
- *  correspondem a um evento distinto no catálogo fechado de business
- *  messaging, e a tabela eventos_capi só aceita os 4 nomes abaixo. `perdido`
- *  fica fora do funil e nunca dispara nada. */
+/** Mapeamento etapa -> evento CAPI. FIXO — não é configurável, espelha as 4
+ *  colunas do Kanban do dono: Novo (LeadSubmitted, disparado no ingest),
+ *  Qualificado (AddToCart, tanto em apresentando_solucao quanto em
+ *  contornando_objecao — mesmo evento, a cascata não duplica), Interesse
+ *  (InitiateCheckout, ao enviar o link) e Venda (Purchase, com valor).
+ *  `qualificando` e `acompanhamento` são refinamento dentro da coluna
+ *  anterior, sem evento próprio. `perdido` fica fora do funil. */
 export const ESTAGIO_EVENTO_MAP: Record<EstagioLead, EventoCapi | null> = {
   novo: "LeadSubmitted",
-  qualificando: "QualifiedLead",
-  apresentando_solucao: null,
-  contornando_objecao: null,
+  qualificando: null,
+  apresentando_solucao: "AddToCart",
+  contornando_objecao: "AddToCart",
   link_enviado: "InitiateCheckout",
   acompanhamento: null,
   convertido: "Purchase",
@@ -75,18 +79,25 @@ export function resolverEventoEstagio(estagio: string): EventoCapi | null {
 }
 
 /** Retorna, em ordem, os {estagio, evento} do funil da posição 0 até o índice
- *  da etapa de destino que possuem evento mapeado. Destino fora do funil
- *  (ex.: "perdido", nome desconhecido) -> []. */
+ *  da etapa de destino que possuem evento mapeado. Deduplicado por evento: se
+ *  mais de uma etapa mapear para o mesmo evento (ex.: apresentando_solucao e
+ *  contornando_objecao, ambas AddToCart), só a primeira etapa que o produz
+ *  entra na cascata — não faz sentido disparar o mesmo evento duas vezes para
+ *  o mesmo avanço. Destino fora do funil (ex.: "perdido", nome desconhecido)
+ *  -> []. */
 export function resolverCascataEventos(
   estagioDestino: string,
 ): Array<{ estagio: EstagioLead; evento: EventoCapi }> {
   const destIdx = ORDEM_FUNIL.indexOf(estagioDestino as EstagioLead);
   if (destIdx < 0) return [];
   const out: Array<{ estagio: EstagioLead; evento: EventoCapi }> = [];
+  const eventosVistos = new Set<EventoCapi>();
   for (let i = 0; i <= destIdx; i++) {
     const estagio = ORDEM_FUNIL[i];
     const evento = ESTAGIO_EVENTO_MAP[estagio];
-    if (evento) out.push({ estagio, evento });
+    if (!evento || eventosVistos.has(evento)) continue;
+    eventosVistos.add(evento);
+    out.push({ estagio, evento });
   }
   return out;
 }
