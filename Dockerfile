@@ -33,10 +33,15 @@ COPY src ./src
 RUN bun run build
 
 ########################################
-# Stage 3: runtime — imagem final enxuta
-#   Sem código-fonte (src/), sem devDependencies (vite e plugins ficam só
-#   nos stages de build). Só o necessário para `bun run server.ts` servir
-#   o build já pronto.
+# Stage 3: runtime — imagem final
+#   Sem devDependencies (vite e plugins ficam só nos stages de build).
+#   `src/` PRECISA vir junto: o loop do agente (Fatia 2) é ligado por
+#   `server.ts` via import dinâmico direto de módulos em src/ (worker,
+#   cliente Supabase) — isso roda fora do bundle SSR do Vite (que só
+#   cobre as rotas HTTP em dist/server/), então o Bun precisa achar esses
+#   arquivos no filesystem em runtime. Sem src/ aqui, o servidor HTTP sobe
+#   normalmente mas o loop do agente falha ao iniciar em silêncio (só um
+#   console.error) — a Mika nunca responde a ninguém.
 ########################################
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
@@ -53,6 +58,7 @@ RUN bun install --frozen-lockfile --production \
 
 COPY --from=build /app/dist ./dist
 COPY server.ts ./server.ts
+COPY src ./src
 
 RUN chown -R app:app /app
 USER app
