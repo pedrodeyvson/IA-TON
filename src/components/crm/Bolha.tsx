@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { obterUrlDeMidia } from "@/lib/crm/crm.functions";
 
 /** Três aparências, não duas: confundir IA com humano faz o Pedro repetir ou
@@ -19,7 +20,7 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
 
   const { data: midia } = useQuery({
     queryKey: ["midia", mensagem.id],
-    queryFn: () => obterUrlDeMidia({ data: { mensagemId: mensagem.id } }),
+    queryFn: () => comSessao(obterUrlDeMidia({ data: { mensagemId: mensagem.id } })),
     enabled: temMidia,
     // A URL assinada vale 5 min; renova com folga antes de expirar.
     staleTime: 4 * 60 * 1000,

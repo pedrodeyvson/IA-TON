@@ -5,6 +5,7 @@ import {
   guardarRascunho,
   lerRascunho,
   limparRascunho,
+  comSessao,
   type ArmazenamentoRascunho,
 } from "./sessao-expirada.ts";
 
@@ -133,4 +134,36 @@ test("sem injeção, usa o sessionStorage global — o caminho do browser", () =
   } finally {
     delete (globalThis as { sessionStorage?: ArmazenamentoRascunho }).sessionStorage;
   }
+});
+
+// `comSessao`: o 401 do exigirSessao RESOLVE (Response crua com x-tss-raw),
+// não rejeita. Sem isso o componente recebe um Response no lugar dos dados.
+test("comSessao converte o 401 que resolve em erro, e manda para o login", async () => {
+  let foi = 0;
+  await assert.rejects(
+    () => comSessao(Promise.resolve(new Response("nao_autenticado", { status: 401 })), () => { foi++; }),
+    /nao_autenticado/,
+  );
+  assert.equal(foi, 1);
+});
+
+test("comSessao deixa passar dado normal sem tocar no login", async () => {
+  let foi = 0;
+  const dados = await comSessao(Promise.resolve([{ id: "m1" }]), () => { foi++; });
+  assert.deepEqual(dados, [{ id: "m1" }]);
+  assert.equal(foi, 0);
+});
+
+test("comSessao não confunde outros erros com sessão expirada", async () => {
+  let foi = 0;
+  // 500 resolve normalmente: quem trata é o componente, não o login.
+  const r = await comSessao(Promise.resolve(new Response("boom", { status: 500 })), () => { foi++; });
+  assert.equal((r as Response).status, 500);
+  assert.equal(foi, 0);
+  // Rejeição de rede continua rejeitando com o erro original.
+  await assert.rejects(
+    () => comSessao(Promise.reject(new TypeError("Failed to fetch")), () => { foi++; }),
+    /Failed to fetch/,
+  );
+  assert.equal(foi, 0);
 });

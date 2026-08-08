@@ -105,3 +105,37 @@ export function limparRascunho(
     // idem
   }
 }
+
+/**
+ * Envolve o retorno de uma server function usada em `queryFn`.
+ *
+ * Motivo: o fetcher do TanStack Start devolve a `Response` CRUA quando ela vem
+ * com `x-tss-raw: true`, que é o caso do 401 do `exigirSessao`. A promessa
+ * RESOLVE — não rejeita. Sem isto, a sessão expirada não vira erro: vira um
+ * objeto `Response` no lugar dos dados, e o componente quebra tentando usá-lo
+ * (visto ao vivo: `mensagens.map is not a function` no Historico).
+ *
+ * Aqui o 401 volta a ser o que sempre deveria ter sido — um erro — e o
+ * operador vai para o login em vez de olhar uma tela quebrada.
+ */
+export async function comSessao<T>(
+  promessa: Promise<T>,
+  irParaLogin: () => void = redirecionarParaLogin,
+): Promise<T> {
+  const resultado = await promessa;
+  if (ehNaoAutenticado(resultado)) {
+    irParaLogin();
+    throw new Error("nao_autenticado");
+  }
+  return resultado;
+}
+
+/** Manda para o login preservando de onde o operador saiu. No-op fora do browser. */
+export function redirecionarParaLogin(): void {
+  if (typeof window === "undefined") return;
+  const destino = window.location.pathname + window.location.search;
+  const url = `/login?destino=${encodeURIComponent(destino)}`;
+  // Só navega se ainda não estamos indo para lá: várias queries falham juntas
+  // quando a sessão cai, e sem esta guarda cada uma dispara uma navegação.
+  if (window.location.pathname !== "/login") window.location.assign(url);
+}

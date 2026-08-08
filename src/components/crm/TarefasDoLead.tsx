@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { useState } from "react";
 import {
   alternarTarefaDoCrm,
@@ -25,7 +26,7 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
     queryKey: ["tarefas", leadId],
     // apenasAbertas: false — no painel do lead as concluídas também aparecem,
     // riscadas, para dar contexto do que já foi feito com ele.
-    queryFn: () => listarTarefasDoCrm({ data: { apenasAbertas: false, leadId } }),
+    queryFn: () => comSessao(listarTarefasDoCrm({ data: { apenasAbertas: false, leadId } })),
     enabled: Boolean(leadId),
   });
 

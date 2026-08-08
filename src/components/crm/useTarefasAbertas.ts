@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { listarTarefasDoCrm } from "@/lib/crm/crm.functions";
 
 /**
@@ -22,7 +23,7 @@ export const CHAVE_TAREFAS_ABERTAS: string[] = ["tarefas", "abertas"];
 export function useTarefasAbertas() {
   return useQuery({
     queryKey: CHAVE_TAREFAS_ABERTAS,
-    queryFn: () => listarTarefasDoCrm({ data: { apenasAbertas: true } }),
+    queryFn: () => comSessao(listarTarefasDoCrm({ data: { apenasAbertas: true } })),
     refetchInterval: 5000,
     // Aba escondida não precisa acordar o banco a noite inteira.
     refetchIntervalInBackground: false,

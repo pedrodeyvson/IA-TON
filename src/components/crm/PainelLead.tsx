@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { useState } from "react";
 import { ESTAGIOS } from "@/lib/crm/estagios";
 import {
@@ -34,7 +35,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
   // otimisticamente) aqui atualiza os dois.
   const { data: lead } = useQuery({
     queryKey: ["lead", leadId],
-    queryFn: () => obterLeadDoCrm({ data: { leadId } }),
+    queryFn: () => comSessao(obterLeadDoCrm({ data: { leadId } })),
     enabled: Boolean(leadId),
   });
 

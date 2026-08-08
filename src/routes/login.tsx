@@ -28,7 +28,12 @@ function TelaLogin() {
       setErro(resultado.erro ?? "Não foi possível entrar.");
       return;
     }
-    navegar({ to: destino });
+    // `href`, não `to`: `destino` é um caminho JÁ montado pelo guard, com a
+    // query string dentro ("/inbox/abc?leadId=xyz"). Com `to`, o router trata
+    // a string inteira como pathname e concatena a busca de novo, produzindo
+    // "…?leadId=xyz?leadId=" — o leadId chega vazio e a caixa de resposta nem
+    // renderiza. `destino` já passou por `destinoSeguro`.
+    navegar({ href: destino });
   }
 
   return (

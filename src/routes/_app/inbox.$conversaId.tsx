@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   devolverParaIa,
@@ -24,7 +25,7 @@ function TelaConversa() {
 
   const { data: lead } = useQuery({
     queryKey: ["lead", leadId],
-    queryFn: () => obterLeadDoCrm({ data: { leadId } }),
+    queryFn: () => comSessao(obterLeadDoCrm({ data: { leadId } })),
     enabled: Boolean(leadId),
   });
 
@@ -34,7 +35,7 @@ function TelaConversa() {
   // pra uma conversa que o operador já assumiu.
   const { data: estadoConversa } = useQuery({
     queryKey: ["conversa", conversaId],
-    queryFn: () => obterEstadoDaConversa({ data: { conversaId } }),
+    queryFn: () => comSessao(obterEstadoDaConversa({ data: { conversaId } })),
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });

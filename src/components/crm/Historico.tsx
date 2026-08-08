@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { comSessao } from "@/lib/auth/sessao-expirada";
 import { useEffect, useRef, useState } from "react";
 import { listarMensagensDaConversa, reenviarMensagem } from "@/lib/crm/crm.functions";
 import { Bolha } from "./Bolha";
@@ -17,7 +18,7 @@ export function Historico({ conversaId }: { conversaId: string }) {
 
   const { data: mensagens = [] } = useQuery({
     queryKey: ["mensagens", conversaId, limite],
-    queryFn: () => listarMensagensDaConversa({ data: { conversaId, limite } }),
+    queryFn: () => comSessao(listarMensagensDaConversa({ data: { conversaId, limite } })),
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
