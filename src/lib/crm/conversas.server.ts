@@ -227,7 +227,11 @@ export async function listarConversas(admin: any, limite = 50): Promise<any[]> {
         " ultima_mensagem_em, ultima_mensagem_preview, ultima_mensagem_direcao," +
         " conversas(id, pausada_pela_ia, followup_toque, ciclo_pausado_ate)",
     )
-    .order("ultima_mensagem_em", { ascending: false })
+    // `nullsFirst: false` é obrigatório: no Postgres, ORDER BY ... DESC é
+    // NULLS FIRST por padrão, então todo lead sem mensagem (recém-criado, ou
+    // semeado) subia ao topo do inbox e empurrava as conversas de verdade
+    // para baixo — o oposto do que "mais recente primeiro" quer dizer.
+    .order("ultima_mensagem_em", { ascending: false, nullsFirst: false })
     .limit(limite);
   return data ?? [];
 }

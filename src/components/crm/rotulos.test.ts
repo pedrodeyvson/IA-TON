@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conversaEmbutida, rotuloDeEstagio, resumoDaLinha } from "./rotulos.ts";
+import { conversaEmbutida, rotuloDeEstagio, rotuloDeHorario, resumoDaLinha } from "./rotulos.ts";
 
 test("cada estágio tem rótulo legível em português", () => {
   assert.equal(rotuloDeEstagio("apresentando_solucao"), "Apresentando solução");
@@ -55,4 +55,36 @@ test("lead sem conversa nenhuma não vira 'assumida' nem estoura", () => {
   assert.equal(conversaEmbutida(null), null);
   assert.equal(resumoDaLinha({ conversas: [] }).assumida, false);
   assert.equal(resumoDaLinha({ conversas: null }).assumida, false);
+});
+
+// Fuso fixo em America/Sao_Paulo: sem isso o SSR (UTC) e o navegador (-03)
+// renderizariam textos diferentes na mesma linha.
+const AGORA = new Date("2026-08-08T18:00:00Z"); // 15:00 em São Paulo
+
+test("mensagem de hoje mostra só a hora, no fuso de São Paulo", () => {
+  // 14:33 UTC = 11:33 em São Paulo. Se o fuso vazasse, sairia "14:33".
+  assert.equal(rotuloDeHorario("2026-08-08T14:33:45Z", AGORA), "11:33");
+});
+
+test("a virada do dia é a de São Paulo, não a do UTC", () => {
+  // 02:00 UTC do dia 9 ainda é 23:00 do dia 8 em São Paulo — é "hoje".
+  assert.equal(rotuloDeHorario("2026-08-09T02:00:00Z", AGORA), "23:00");
+  // 03:30 UTC do dia 8 é 00:30 do dia 8 em São Paulo — também "hoje".
+  assert.equal(rotuloDeHorario("2026-08-08T03:30:00Z", AGORA), "00:30");
+});
+
+test("véspera vira 'ontem' e o resto vira data", () => {
+  assert.equal(rotuloDeHorario("2026-08-07T14:00:00Z", AGORA), "ontem");
+  assert.equal(rotuloDeHorario("2026-08-05T14:00:00Z", AGORA), "05/08");
+});
+
+test("ano diferente aparece, para não confundir com o mês corrente", () => {
+  assert.equal(rotuloDeHorario("2025-12-30T14:00:00Z", AGORA), "30/12/25");
+});
+
+test("horário ausente ou inválido não quebra a linha", () => {
+  assert.equal(rotuloDeHorario(null), "");
+  assert.equal(rotuloDeHorario(undefined), "");
+  assert.equal(rotuloDeHorario(""), "");
+  assert.equal(rotuloDeHorario("nao é data", AGORA), "");
 });

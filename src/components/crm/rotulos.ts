@@ -38,6 +38,43 @@ export function conversaEmbutida(linha: any): any | null {
   return bruto;
 }
 
+const FUSO = "America/Sao_Paulo";
+
+/** Dia civil em São Paulo, como "2026-08-08". Fixar o fuso é o que faz o
+ *  servidor e o navegador concordarem: sem isso o SSR formata em UTC e o
+ *  cliente em -03, e depois da 21h os dois discordariam do dia. */
+function diaEmSaoPaulo(data: Date): string {
+  return data.toLocaleDateString("en-CA", { timeZone: FUSO });
+}
+
+/**
+ * Horário da última mensagem no padrão de app de conversa: só a hora quando é
+ * de hoje, "ontem", e a data para o resto. Recebe `agora` para ser testável
+ * sem congelar o relógio.
+ */
+export function rotuloDeHorario(iso: string | null | undefined, agora: Date = new Date()): string {
+  if (!iso) return "";
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return "";
+
+  const dia = diaEmSaoPaulo(data);
+  if (dia === diaEmSaoPaulo(agora)) {
+    return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: FUSO });
+  }
+
+  const ontem = new Date(agora.getTime() - 24 * 60 * 60 * 1000);
+  if (dia === diaEmSaoPaulo(ontem)) return "ontem";
+
+  // Ano só quando não é o corrente — "05/02" basta para o inbox do dia a dia.
+  const mesmoAno = dia.slice(0, 4) === diaEmSaoPaulo(agora).slice(0, 4);
+  return data.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    ...(mesmoAno ? {} : { year: "2-digit" }),
+    timeZone: FUSO,
+  });
+}
+
 export function resumoDaLinha(conversa: any): { titulo: string; assumida: boolean } {
   const titulo = conversa?.nome?.trim() || conversa?.telefone || "Sem identificação";
   const assumida = Boolean(conversaEmbutida(conversa)?.pausada_pela_ia);

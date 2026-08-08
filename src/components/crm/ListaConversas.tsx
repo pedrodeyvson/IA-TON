@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { conversaEmbutida, resumoDaLinha, rotuloDeEstagio } from "./rotulos";
+import { conversaEmbutida, resumoDaLinha, rotuloDeEstagio, rotuloDeHorario } from "./rotulos";
 import { useConversas } from "./useConversas";
 
 type Filtro = "todas" | "atencao" | "assumidas";
@@ -85,6 +85,11 @@ export function ListaConversas() {
                   <span>{rotuloDeEstagio(lead.estagio ?? "")}</span>
                   <span>·</span>
                   <span>{assumida ? "você assumiu" : "IA respondendo"}</span>
+                  {lead.ultima_mensagem_em && (
+                    <time className="ml-auto shrink-0" dateTime={lead.ultima_mensagem_em}>
+                      {rotuloDeHorario(lead.ultima_mensagem_em)}
+                    </time>
+                  )}
                 </div>
               </Link>
             </li>
