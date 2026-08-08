@@ -723,6 +723,10 @@ Esta é a terceira e última função sem `exigirSessao` — atualize a lista de
 
 - [ ] **Step 6: Criar o layout autenticado**
 
+⚠️ **Restrição herdada da Task 3, apurada no re-review.** O `destino` só pode ser consumido pela navegação do próprio TanStack Router (`redirect({ to })`, `navegar({ to })`, `<Link to>`). Nunca por `window.location`, por um `<a href>` montado à mão, ou por qualquer código que faça `decodeURIComponent` no caminho antes de resolver.
+
+O motivo é específico: `destinoSeguro` aceita `/%2F%2Fevil.com` como caminho interno, e isso está correto — é um segmento percent-encoded. O router decodifica esse valor internamente (`router-core` → `decodePath`), mas logo em seguida colapsa `//` inicial para `/`, o que neutraliza o resultado. Essa proteção é do TanStack, não do `destinoSeguro`: o ponto fixo fecha "reparse muda a origem", e não tem como fechar "decodifica e depois compara prefixo". Um caminho de navegação que decodifique sem colapsar reabre o open redirect.
+
 Cria `src/routes/_app.tsx`:
 
 ```tsx
