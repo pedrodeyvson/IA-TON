@@ -408,6 +408,28 @@ test("tab, CR e LF não driblam a checagem", () => {
   assert.equal(destinoSeguro("/\r\n/evil.com"), "/inbox");
   assert.equal(destinoSeguro("/\t\t//evil.com"), "/inbox");
 });
+
+test("dot-segment não reconstrói caminho protocol-relative na saída", () => {
+  // "/.//evil.com" resolve com a origem CERTA (a base sentinela), mas a
+  // remoção de dot-segments deixa o pathname "//evil.com" — que, relido por
+  // qualquer navegação, vira https://evil.com. Validar só a entrada não
+  // basta: a saída também precisa passar pelo mesmo teste.
+  assert.equal(destinoSeguro("/.//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/././/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/x/..//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/.///evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/a/../..//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\t.//evil.com"), "/inbox");
+});
+
+test("caminhos internos legítimos atravessam intactos", () => {
+  // O outro lado do risco: normalização agressiva demais quebraria o retorno
+  // pós-login, que é a razão de o ?destino= existir.
+  assert.equal(destinoSeguro("/inbox/"), "/inbox/");
+  assert.equal(destinoSeguro("/tarefas"), "/tarefas");
+  assert.equal(destinoSeguro("/inbox/x#topo"), "/inbox/x#topo");
+  assert.equal(destinoSeguro("/inbox/a/b?q=1&r=2"), "/inbox/a/b?q=1&r=2");
+});
 ```
 
 Rode (`node --test --experimental-strip-types src/lib/auth/destino.test.ts`), veja falhar por módulo inexistente, e só então crie `src/lib/auth/destino.ts`:
@@ -415,9 +437,25 @@ Rode (`node --test --experimental-strip-types src/lib/auth/destino.test.ts`), ve
 ```ts
 // Puro: sem React, sem alias, testável sob node --test.
 
-/** Base sentinela para resolver o candidato. Nunca sai daqui — só serve para
- *  perguntar ao parser se a string mudaria de origem. */
+/** Base sentinela para resolver o candidato. `.invalid` é TLD reservado
+ *  (RFC 2606), então não há host real com que colidir. */
 const BASE_SENTINELA = "https://base.invalid";
+const DESTINO_PADRAO = "/inbox";
+
+/**
+ * Resolve contra a base sentinela e devolve o caminho normalizado, ou null se
+ * a resolução saiu da origem — isto é, se a string era URL disfarçada.
+ */
+function resolverInterno(valor: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(valor, BASE_SENTINELA);
+  } catch {
+    return null;
+  }
+  if (url.origin !== BASE_SENTINELA) return null;
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 /**
  * Só aceita caminho interno como destino pós-login.
@@ -425,26 +463,27 @@ const BASE_SENTINELA = "https://base.invalid";
  * A decisão é delegada ao MESMO parser de URL que o navegador usa, em vez de
  * comparar prefixos: a spec WHATWG remove tab, CR e LF antes de parsear, de
  * modo que "/\t/evil.com" vira https://evil.com/ e engana qualquer checagem
- * de `startsWith`. Perguntar ao parser se a origem mudou fecha a classe
- * inteira de bypass por normalização, em vez de caçar caractere por
- * caractere.
+ * de `startsWith`.
+ *
+ * Mas resolver uma vez não basta, e é aqui que a versão anterior falhava:
+ * "/.//evil.com" resolve COM a origem certa (a sentinela) e mesmo assim
+ * produz o pathname "//evil.com" — protocol-relative de novo, agora fabricado
+ * pela própria remoção de dot-segments. Por isso a saída passa pelo mesmo
+ * teste da entrada: só é aceita se resolver para si mesma. Exigir esse ponto
+ * fixo é o que fecha a classe, em vez de caçar padrão por padrão.
  */
 export function destinoSeguro(bruto: unknown): string {
-  if (typeof bruto !== "string") return "/inbox";
-  if (!bruto.startsWith("/")) return "/inbox";
+  if (typeof bruto !== "string") return DESTINO_PADRAO;
+  if (!bruto.startsWith("/")) return DESTINO_PADRAO;
 
-  let url: URL;
-  try {
-    url = new URL(bruto, BASE_SENTINELA);
-  } catch {
-    return "/inbox";
-  }
+  const caminho = resolverInterno(bruto);
+  if (caminho === null) return DESTINO_PADRAO;
 
-  // Mudou de origem ao ser resolvido: era URL disfarçada de caminho.
-  if (url.origin !== BASE_SENTINELA) return "/inbox";
+  // Ponto fixo: se resolver o resultado der outra coisa, a normalização
+  // fabricou algo que a primeira passagem não viu.
+  if (resolverInterno(caminho) !== caminho) return DESTINO_PADRAO;
 
-  // Devolve a forma já normalizada pelo parser, não a string crua.
-  return `${url.pathname}${url.search}${url.hash}`;
+  return caminho;
 }
 ```
 
