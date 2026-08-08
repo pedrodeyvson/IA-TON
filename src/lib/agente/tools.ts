@@ -1,8 +1,8 @@
 // Definição e execução das tools. `executarTool` NUNCA lança: toda falha volta
 // como texto para o modelo, que pode se corrigir no mesmo turno. Uma exceção
 // aqui mataria a resposta ao cliente por causa de um argumento mal formado.
-import { ehEstagio } from "../crm/estagios.ts";
-import { atualizarLead, marcarPrecisaAtencao, moverEstagio } from "../crm/leads.server.ts";
+import { ehEstagio, limitarEstagio } from "../crm/estagios.ts";
+import { atualizarLead, coletarEvidenciaDoLead, marcarPrecisaAtencao, moverEstagio } from "../crm/leads.server.ts";
 import {
   agendarToque, limparAgendamento, pausarIa, reiniciarCiclo,
 } from "../crm/conversas.server.ts";
@@ -32,7 +32,23 @@ export const DEFINICOES_TOOLS = [
           estagio: {
             type: "string",
             enum: ["qualificando", "apresentando_solucao", "contornando_objecao", "acompanhamento"],
-            description: "Estágio atual da conversa",
+            // Descrição reescrita em 08/08/2026. A anterior era "Estágio atual
+            // da conversa", e foi o que inflou o funil: mandava o modelo
+            // descrever a PRÓPRIA AÇÃO ("perguntei algo de qualificação, logo
+            // estamos qualificando") em vez do que o LEAD demonstrou. Quatro
+            // leads ficaram em "qualificando" tendo só clicado no anúncio.
+            description:
+              "Etapa do LEAD no funil — o que ELE já demonstrou, nunca o que você acabou de " +
+              "perguntar. Critério de entrada de cada uma: " +
+              "'qualificando' = o lead RESPONDEU alguma pergunta sua (a saudação automática do " +
+              "botão do anúncio não conta, ele não digitou aquilo); " +
+              "'apresentando_solucao' = ele já disse o que usa ou o que precisa e você está " +
+              "recomendando um modelo; " +
+              "'contornando_objecao' = ele levantou uma objeção concreta (preço, taxa, " +
+              "fidelidade, desconfiança); " +
+              "'acompanhamento' = o link já foi enviado e você está confirmando se ele comprou. " +
+              "Na dúvida, escolha a etapa MENOS avançada: etapa inflada dispara evento de " +
+              "conversão falso no Meta Ads e estraga a otimização da campanha.",
           },
         },
         additionalProperties: false,
@@ -174,7 +190,34 @@ async function executarAtualizarLead(
     maquina_interesse: maquina || undefined,
   });
 
-  if (estagio !== undefined) await moverEstagio(admin, ctx.leadId, estagio, { origem: "agente" });
+  if (estagio !== undefined) {
+    // Trava de evidência. A descrição da ferramenta já explica o critério, mas
+    // instrução de prompt o modelo contorna — a regra tem que existir em
+    // código. Coletada DEPOIS do atualizarLead acima, para que o
+    // maquina_interesse informado neste mesmo turno já conte como interesse.
+    const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+    const { estagio: permitido, cortado, motivo } = limitarEstagio(estagio, evidencia);
+
+    if (cortado) {
+      // Fica no histórico do lead para o dono auditar por que a IA foi contida.
+      await registrarEvento(admin, ctx.leadId, "estagio_limitado", {
+        pedido: estagio,
+        gravado: permitido,
+        motivo,
+      });
+    }
+
+    await moverEstagio(admin, ctx.leadId, permitido, { origem: "agente" });
+
+    if (cortado) {
+      // Devolver o corte ao modelo é o que o ensina dentro do próprio turno.
+      return {
+        conteudo:
+          `ok, lead atualizado — mas o estágio gravado foi "${permitido}", não "${estagio}". ` +
+          `${motivo}. Continue de onde o lead realmente está.`,
+      };
+    }
+  }
 
   return { conteudo: "ok, lead atualizado" };
 }

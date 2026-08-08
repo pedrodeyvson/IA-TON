@@ -65,6 +65,13 @@ export async function alternarTarefa(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Mesmo defeito que `alternarTarefa` tinha: `excluirTarefaDoCrm` devolve
+ * `{ ok: true }` constante, então descartar o `error` aqui deixava a UI sem
+ * nada para conferir. A tarefa "apagada" reaparecia no refetch seguinte e a
+ * linha de erro do TarefasDoLead nunca acendia.
+ */
 export async function excluirTarefa(admin: any, tarefaId: string): Promise<void> {
-  await admin.from("tarefas").delete().eq("id", tarefaId);
+  const { error } = await admin.from("tarefas").delete().eq("id", tarefaId);
+  if (error) throw new Error(error.message);
 }

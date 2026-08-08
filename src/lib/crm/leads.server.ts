@@ -113,3 +113,39 @@ export async function marcarPrecisaAtencao(
 export async function registrarNota(admin: any, leadId: string, texto: string): Promise<void> {
   await registrarEvento(admin, leadId, "nota", { texto });
 }
+
+/**
+ * Junta a evidência que sustenta (ou não) o estágio que a IA quer gravar.
+ * Ver `limitarEstagio` em estagios.ts para o porquê — resumo: em 08/08/2026
+ * quatro leads estavam em "qualificando" tendo apenas clicado no anúncio.
+ *
+ * A saudação pronta do botão do anúncio é descontada: ela chega como mensagem
+ * do lead, mas não foi ele quem escreveu.
+ */
+export async function coletarEvidenciaDoLead(admin: any, leadId: string) {
+  const { ehSaudacaoDeAnuncio } = await import("./estagios.ts");
+
+  const { data: lead } = await admin
+    .from("leads")
+    .select("estagio, maquina_interesse, link_enviado_em")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  const { data: falas } = await admin
+    .from("mensagens")
+    .select("conteudo")
+    .eq("lead_id", leadId)
+    .eq("remetente", "lead")
+    .limit(50);
+
+  const respostasDoLead = (falas ?? []).filter(
+    (m: any) => !ehSaudacaoDeAnuncio(m.conteudo),
+  ).length;
+
+  return {
+    respostasDoLead,
+    temInteresse: Boolean(lead?.maquina_interesse),
+    linkEnviado: Boolean(lead?.link_enviado_em),
+    compraConfirmada: lead?.estagio === "convertido",
+  };
+}
