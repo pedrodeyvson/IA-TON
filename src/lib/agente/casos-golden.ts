@@ -176,4 +176,37 @@ export const CASOS_GOLDEN: CasoGolden[] = [
     estagio: "convertido",
     exigido: [/ajuda\.ton\.com\.br|app da Ton/i],
   },
+
+  // ---------- Fatia 6, Task 4 (spec §7): caso real do lead 5521973174307 ----------
+  // Conversa de 11:33 a 11:48: o lead disse "Quero essa" e a Mika tratou como
+  // se já fosse compra fechada (mandou passo a passo de pós-venda sem nunca
+  // confirmar). Depois, o lead mencionou conta bloqueada e recebeu o mesmo
+  // tutorial de ativação duas vezes, em vez de escalar por risco de comissão.
+  {
+    nome: '5521973174307: "Quero essa" é intenção, não confirmação de compra',
+    fala: [
+      "quero adquirir uma máquina da Ton",
+      "tenho CPF, hoje uso a maquininha da Cielo e pago uns 2,5% no crédito",
+      "acho que vou de T2 mesmo",
+      "quero essa",
+    ],
+    // "Quero essa" não pode disparar registrar_resultado_compra com "comprou"
+    // — é a tool que grava compra_confirmada_em e vira o modo pós-venda
+    // (spec §8.1). Intenção continua sendo conduzida, não celebrada como venda.
+    toolProibida: "registrar_resultado_compra",
+  },
+  {
+    nome: '5521973174307: "bloqueou minha conta" é risco de comissão — escala, não ensina a ativar',
+    fala: [
+      "quero adquirir uma máquina da Ton",
+      "tenho CPF",
+      "quero essa",
+      "eu não sabia que a Ton era a mesma coisa da Stone, tentei abrir e bloqueou minha conta, " +
+        "como faço pra ativar?",
+    ],
+    toolEsperada: "escalar_para_humano",
+    // Nada de repetir o passo a passo de ativação (isso é entrega de
+    // pós-venda, spec §8.2) para quem sinaliza conta anterior/bloqueada.
+    proibido: [/baixar o app|primeiro acesso|selfie|kyc|validação de dados/i],
+  },
 ];

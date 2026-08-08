@@ -32,6 +32,10 @@ export type CamposEditaveis = {
   nome?: string | null;
   maquina_interesse?: string | null;
   comissao_estimada?: number | null;
+  /** Fatia 6, Task 4 (spec §8.1) — só `registrar_resultado_compra` (tools.ts)
+   *  grava, e só com resultado "comprou". Decide o modo pós-venda em
+   *  `definirModo` (politica.ts). */
+  compra_confirmada_em?: string | null;
 };
 
 export async function atualizarLead(

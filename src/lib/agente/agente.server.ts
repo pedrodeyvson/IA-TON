@@ -116,7 +116,14 @@ export async function executarTurno(
     }
 
     const chamar = deps.chamar ?? (await carregarChamadorPadrao());
-    const modo = definirModo({ estagio: String(lead.estagio ?? "") });
+    // Fatia 6, Task 4 (spec §8.1): o modo decide por `compra_confirmada_em`, não
+    // mais pelo estágio sozinho — ver o comentário de `definirModo` (politica.ts)
+    // sobre o caso real que motivou a troca.
+    const modo = definirModo({ compraConfirmadaEm: lead.compra_confirmada_em ?? null });
+    // Sub-estado de "venda" (spec §8.1, modo CONFIRMAÇÃO): o link já saiu, mas
+    // ninguém confirmou a compra ainda — acompanhar ativamente em vez de sumir
+    // ou de assumir que "quero essa" já é venda fechada.
+    const confirmacaoPendente = modo === "venda" && Boolean(lead.link_enviado_em);
 
     const mensagens: any[] = montarMensagens(
       montarSystemPrompt({
@@ -126,6 +133,7 @@ export async function executarTurno(
           maquina_interesse: lead.maquina_interesse,
         },
         modo,
+        confirmacaoPendente,
       }),
       historico as any,
     );

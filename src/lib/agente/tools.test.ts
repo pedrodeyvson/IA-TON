@@ -227,6 +227,71 @@ test("resultado comprou converte o lead e encerra a régua", async () => {
   assert.match(r.conteudo, /pós-venda|pos-venda/i);
 });
 
+// ===================== Fatia 6, Task 4: compra_confirmada_em =====================
+// A garantia de que "comprou" só chega com confirmação EXPLÍCITA é de PROMPT
+// (COMO_USAR_AS_TOOLS/SUPORTE_ANTES_DA_CONFIRMACAO) — o que este teste prova é
+// a metade de CÓDIGO: o campo é gravado QUANDO e SÓ QUANDO a tool é chamada
+// com resultado "comprou", nunca antes e nunca para os outros resultados.
+
+test("resultado comprou grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  const antes = Date.now();
+  await executarTool(admin, "registrar_resultado_compra", { resultado: "comprou" }, CTX);
+
+  const atualizacoesLeads = admin.chamadas.filter(
+    (c: any) => c.tabela === "leads" && c.operacao === "update",
+  );
+  const confirmacao = atualizacoesLeads.find(
+    (u: any) => u.payload.compra_confirmada_em !== undefined,
+  );
+  assert.ok(confirmacao, "tem que gravar compra_confirmada_em");
+  const gravadoEm = new Date(confirmacao!.payload.compra_confirmada_em).getTime();
+  assert.ok(gravadoEm >= antes, "o timestamp é do momento da confirmação, não anterior");
+});
+
+test("resultado nao_comprou NÃO grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  await executarTool(
+    admin,
+    "registrar_resultado_compra",
+    { resultado: "nao_comprou", detalhe: "achou a taxa alta" },
+    CTX,
+  );
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
+});
+
+test("resultado nao_perturbe NÃO grava compra_confirmada_em", async () => {
+  const admin = adminComLead("link_enviado");
+  await executarTool(
+    admin,
+    "registrar_resultado_compra",
+    { resultado: "nao_perturbe", detalhe: "pediu para não mandar mais" },
+    CTX,
+  );
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
+});
+
+test("resultado inventado não grava compra_confirmada_em (nada é gravado)", async () => {
+  const admin = adminComLead();
+  await executarTool(admin, "registrar_resultado_compra", { resultado: "talvez" }, CTX);
+
+  const gravouConfirmacao = admin.chamadas.some(
+    (c: any) =>
+      c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.equal(gravouConfirmacao, false);
+});
+
 test("resultado nao_comprou guarda o motivo e manda quebrar a objeção agora", async () => {
   const admin = adminComLead("link_enviado");
   const r = await executarTool(

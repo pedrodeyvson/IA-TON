@@ -9,6 +9,7 @@ import {
   ANGULO_DO_TOQUE,
   CONHECIMENTO_POS_VENDA,
   CONHECIMENTO_VENDA,
+  MODO_CONFIRMACAO,
   REGRAS_ESCALACAO,
 } from "./conhecimento.ts";
 import { PRODUTOS } from "./links.ts";
@@ -69,8 +70,10 @@ const COMO_USAR_AS_TOOLS = `
   esta tool quando ele confirmar que quer aquela máquina de verdade. Se ele ainda não decidiu
   a máquina, escolha "catalogo".
 - **registrar_resultado_compra** — quando o cliente disser o que aconteceu:
-  "comprou" (aí você entra em modo pós-venda), "nao_comprou" (mande o motivo em detalhe e
-  quebre a objeção na mesma mensagem, sem desistir) ou "nao_perturbe" (ele pediu para parar).
+  "comprou" só com confirmação EXPLÍCITA nas palavras dele — "comprei", "finalizei", "fiz o
+  cadastro", "chegou a maquininha" (aí você entra em modo pós-venda; "quero essa" NÃO conta,
+  é intenção, continue conduzindo), "nao_comprou" (mande o motivo em detalhe e quebre a
+  objeção na mesma mensagem, sem desistir) ou "nao_perturbe" (ele pediu para parar).
 - **escalar_para_humano** — passa a conversa para o Pedro e encerra o seu turno.
 
 ### Produtos que você pode escolher em registrar_link_enviado
@@ -83,8 +86,16 @@ O Ton Black só existe para CNPJ e só nos níveis T3 e T3 Smart — não ofere�
 export function montarSystemPrompt(params: {
   lead: LeadNoPrompt;
   modo: ModoDoAgente;
+  /**
+   * Fatia 6, Task 4 (spec §8.1) — sub-estado de "venda": true quando o link já
+   * saiu (`link_enviado_em` preenchido) mas a compra ainda não foi confirmada
+   * (`compra_confirmada_em` vazio). Ignorado em modo "pos_venda" — lá a compra
+   * já está confirmada por definição. Não é um terceiro valor de
+   * `ModoDoAgente`, é conteúdo condicional dentro do mesmo modo "venda".
+   */
+  confirmacaoPendente?: boolean;
 }): string {
-  const { lead, modo } = params;
+  const { lead, modo, confirmacaoPendente } = params;
   const nome = lead.nome?.trim();
   const maquina = lead.maquina_interesse?.trim();
 
@@ -96,9 +107,11 @@ export function montarSystemPrompt(params: {
 
   const base = modo === "pos_venda" ? CONHECIMENTO_POS_VENDA : CONHECIMENTO_VENDA;
 
-  return [base, REGRAS_ESCALACAO, COMO_USAR_AS_TOOLS, "## Estado deste lead", estado].join(
-    "\n\n",
-  );
+  const blocos = [base, REGRAS_ESCALACAO];
+  if (modo === "venda" && confirmacaoPendente) blocos.push(MODO_CONFIRMACAO);
+  blocos.push(COMO_USAR_AS_TOOLS, "## Estado deste lead", estado);
+
+  return blocos.join("\n\n");
 }
 
 /**

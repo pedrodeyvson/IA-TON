@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CANAL_OFICIAL_TON, TAXAS, ANGULO_DO_TOQUE, ANGULO_DO_RESGATE } from "./conhecimento.ts";
+import {
+  CANAL_OFICIAL_TON, TAXAS, ANGULO_DO_TOQUE, ANGULO_DO_RESGATE, MODO_CONFIRMACAO,
+} from "./conhecimento.ts";
 import { montarSystemPrompt, instrucaoDoToque, instrucaoDoResgate, montarMensagens } from "./prompt.ts";
 
 const LEAD = { nome: "Ana", estagio: "qualificando", maquina_interesse: null };
@@ -196,6 +198,42 @@ test("imagem COM legenda mantém o marcador — a legenda não pode virar texto 
   ]);
   assert.match(msgs[1].content ?? "", /imagem/i);
   assert.match(msgs[1].content ?? "", /essa aqui\?/);
+});
+
+// ===================== Fatia 6, Task 4: modo CONFIRMAÇÃO =====================
+
+test("sem link enviado, o modo venda NÃO traz o bloco de confirmação", () => {
+  const p = montarSystemPrompt({ lead: LEAD, modo: "venda", confirmacaoPendente: false });
+  assert.equal(p.includes(MODO_CONFIRMACAO), false);
+});
+
+test("link enviado sem compra confirmada: modo continua venda, mas com o bloco de confirmação", () => {
+  const p = montarSystemPrompt({ lead: LEAD, modo: "venda", confirmacaoPendente: true });
+  // Continua "venda", não um terceiro modo: a tabela de taxas e as objeções
+  // seguem lá — é conteúdo ADICIONAL, não substituição de modo.
+  assert.ok(p.includes(TAXAS));
+  assert.match(p, /Quebra de objeções/);
+  assert.ok(p.includes(MODO_CONFIRMACAO));
+  assert.match(p, /conseguiu finalizar o cadastro/i);
+});
+
+test("confirmacaoPendente é ignorado no modo pós-venda — lá a compra já está confirmada", () => {
+  const p = montarSystemPrompt({
+    lead: { ...LEAD, estagio: "convertido" },
+    modo: "pos_venda",
+    confirmacaoPendente: true,
+  });
+  assert.equal(p.includes(MODO_CONFIRMACAO), false);
+});
+
+test("o modo venda sempre orienta suporte-antes-da-confirmação, com ou sem link enviado", () => {
+  // A Task 4 trata isso como conteúdo permanente de "venda" (que por definição
+  // é sempre pré-confirmação), não condicionado a link_enviado_em.
+  for (const confirmacaoPendente of [false, true]) {
+    const p = montarSystemPrompt({ lead: LEAD, modo: "venda", confirmacaoPendente });
+    assert.match(p, /quatro tempos|Pedido de suporte ANTES/i);
+    assert.match(p, /risco de comissão/i);
+  }
 });
 
 test("mensagem sem conteúdo aproveitável é descartada", () => {

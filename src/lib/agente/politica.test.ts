@@ -130,12 +130,15 @@ test("a trava de 1 por dia não atrapalha a resposta a uma mensagem do lead", ()
   assert.deepEqual(decidirTurno({ ...OK, ultimaMensagemIaMs: cincoMinAtras }), { responder: true });
 });
 
-test("modo pós-venda só depois que o lead virou cliente", () => {
-  assert.equal(definirModo({ estagio: "convertido" }), "pos_venda");
-  assert.equal(definirModo({ estagio: "qualificando" }), "venda");
-  assert.equal(definirModo({ estagio: "link_enviado" }), "venda");
-  assert.equal(definirModo({ estagio: "" }), "venda");
+// ===================== Fatia 6, Task 4: modo por compra confirmada =====================
+
+test("modo pós-venda só depois que compra_confirmada_em está preenchido", () => {
+  assert.equal(definirModo({ compraConfirmadaEm: "2026-08-08T11:48:00.000Z" }), "pos_venda");
+  assert.equal(definirModo({ compraConfirmadaEm: null }), "venda");
+  assert.equal(definirModo({ compraConfirmadaEm: undefined }), "venda");
+  assert.equal(definirModo({}), "venda");
 });
+
 
 test("pediuParaParar reconhece o pedido de opt-out", () => {
   for (const texto of [

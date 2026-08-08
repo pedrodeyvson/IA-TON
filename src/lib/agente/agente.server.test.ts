@@ -252,12 +252,13 @@ test("escalação encerra o turno sem enviar mensagem", async () => {
   assert.equal(enviou, false);
 });
 
-test("lead convertido conversa em modo pós-venda", async () => {
+test("lead convertido e com compra confirmada conversa em modo pós-venda", async () => {
   const admin = adminDeConversa({
     "leads.select": {
       data: {
         id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "convertido",
         precisa_atencao: false, nao_perturbe: false,
+        compra_confirmada_em: new Date(AGORA - 3_600_000).toISOString(),
       },
       error: null,
     },
@@ -279,6 +280,180 @@ test("lead convertido conversa em modo pós-venda", async () => {
   assert.match(system, /Tente resolver/);
   assert.match(system, /ajuda\.ton\.com\.br/);
   assert.equal(system.includes("Quebra de objeções"), false);
+});
+
+// ===================== Fatia 6, Task 4: três modos com confirmação real =====================
+// spec §8.1: só `compra_confirmada_em` decide "pos_venda" — nunca mais o
+// estágio sozinho (era o defeito do caso real, spec §7/§11 Minor 9).
+
+test('estágio "convertido" sozinho, sem compra_confirmada_em, NÃO muda o modo para pós-venda', async () => {
+  // Regressão direta do achado da spec: antes desta task, `definirModo` olhava
+  // só `estagio`, e um lead podia cair em "convertido" sem confirmação
+  // nenhuma (foi o que aconteceu com "quero essa" no caso real). Depois desta
+  // task, `definirModo` nem aceita mais `estagio` — só `compraConfirmadaEm`.
+  const admin = adminDeConversa({
+    "leads.select": {
+      data: {
+        id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "convertido",
+        precisa_atencao: false, nao_perturbe: false, link_enviado_em: null,
+        compra_confirmada_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero essa", timestamp_ms: AGORA }],
+      error: null,
+    },
+  });
+  let system = "";
+
+  await executarTurno(admin, CTX, {
+    chamar: async (mensagens: any[]) => {
+      system = mensagens[0].content;
+      return { texto: "Show! Vamos fechar então?", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+
+  // Continua em "venda": tem a tabela de taxas/objeções, NÃO tem o roteiro de
+  // pós-venda ("Tente resolver", que só entra no modo pos_venda de verdade).
+  assert.match(system, /Quebra de objeções/);
+  assert.equal(system.includes("Tente resolver"), false);
+});
+
+test("link enviado sem confirmação: modo continua venda, mas com o bloco de CONFIRMAÇÃO (não vira suporte)", async () => {
+  const admin = adminDeConversa({
+    "leads.select": {
+      data: {
+        id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "acompanhamento",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 3_600_000).toISOString(),
+        compra_confirmada_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "consegui fazer o cadastro só que travou numa parte", timestamp_ms: AGORA }],
+      error: null,
+    },
+  });
+  let system = "";
+
+  await executarTurno(admin, CTX, {
+    chamar: async (mensagens: any[]) => {
+      system = mensagens[0].content;
+      return { texto: "Me conta o que travou que eu te ajudo", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+
+  // Modo "venda" de verdade (não um terceiro modo): a tabela de taxas segue lá.
+  assert.match(system, /Quebra de objeções/);
+  assert.equal(system.includes("Tente resolver"), false, "não é o roteiro completo de pós-venda");
+  // Mas ganha o bloco de acompanhamento ativo da CONFIRMAÇÃO.
+  assert.match(system, /conseguiu finalizar o cadastro/i);
+});
+
+test('vira "pos_venda" só DEPOIS que registrar_resultado_compra grava "comprou" — não no mesmo turno em que "quero essa" aparece', async () => {
+  // Turno 1: o lead só demonstra intenção. O modelo NÃO deveria chamar
+  // registrar_resultado_compra aqui (isso é regra de prompt, coberta pelos
+  // golden cases) — o que este teste prova é a metade de CÓDIGO: mesmo que o
+  // modelo relute e não chame a tool, nada no turno grava compra_confirmada_em
+  // sozinho.
+  const adminIntencao = adminDeConversa({
+    "leads.select": {
+      data: {
+        id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "apresentando_solucao",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 3_600_000).toISOString(),
+        compra_confirmada_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "quero essa", timestamp_ms: AGORA }],
+      error: null,
+    },
+  });
+  let systemIntencao = "";
+  await executarTurno(adminIntencao, CTX, {
+    chamar: async (mensagens: any[]) => {
+      systemIntencao = mensagens[0].content;
+      return { texto: "Perfeito! Só confirma: é CPF ou CNPJ pra eu já preencher certo?", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+  assert.match(systemIntencao, /Quebra de objeções/, "turno 1 continua em modo venda");
+  assert.equal(
+    adminIntencao.chamadas.some(
+      (c: any) => c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+    ),
+    false,
+    "nada grava compra_confirmada_em sem a tool ter sido chamada com 'comprou'",
+  );
+
+  // Turno 2: agora o lead confirma de verdade, e o modelo chama a tool.
+  const adminConfirma = adminDeConversa({
+    "leads.select": {
+      data: {
+        id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "acompanhamento",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 3_600_000).toISOString(),
+        compra_confirmada_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "finalizei o cadastro agora", timestamp_ms: AGORA }],
+      error: null,
+    },
+  });
+  const chamadas: any[][] = [];
+  await executarTurno(adminConfirma, CTX, {
+    chamar: async (mensagens: any[]) => {
+      chamadas.push(mensagens);
+      if (chamadas.length === 1) {
+        return {
+          texto: null,
+          toolCalls: [{ id: "c1", nome: "registrar_resultado_compra", argumentos: { resultado: "comprou", detalhe: "finalizei o cadastro agora" } }],
+        };
+      }
+      return { texto: "Show, bora deixar tudo certinho no cadastro então", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+
+  const confirmacao = adminConfirma.chamadas.find(
+    (c: any) => c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+  );
+  assert.ok(confirmacao, "a tool grava compra_confirmada_em quando chamada com 'comprou'");
+
+  // Turno 3 (o PRÓXIMO turno, já com compra_confirmada_em no banco): só agora
+  // o modo vira pos_venda de verdade.
+  const adminPosVenda = adminDeConversa({
+    "leads.select": {
+      data: {
+        id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "convertido",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 3_600_000).toISOString(),
+        compra_confirmada_em: confirmacao!.payload.compra_confirmada_em,
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "lead", tipo: "texto", conteudo: "e agora, o que eu faço?", timestamp_ms: AGORA }],
+      error: null,
+    },
+  });
+  let systemPosVenda = "";
+  await executarTurno(adminPosVenda, CTX, {
+    chamar: async (mensagens: any[]) => {
+      systemPosVenda = mensagens[0].content;
+      return { texto: "Vamos lá: abre o app e me conta o que aparece", toolCalls: [] };
+    },
+    enviar: async () => ({ messageid: "WA1" }),
+  });
+  assert.match(systemPosVenda, /Tente resolver/, "só agora, com compra_confirmada_em gravado, entra pós-venda");
 });
 
 test("o toque injeta a instrução do ângulo daquele número", async () => {

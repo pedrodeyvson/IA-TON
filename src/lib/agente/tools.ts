@@ -82,8 +82,11 @@ export const DEFINICOES_TOOLS = [
     function: {
       name: "registrar_resultado_compra",
       description:
-        "Registre o que o cliente disse sobre a compra. 'comprou' libera o acompanhamento de " +
-        "pós-venda; 'nao_comprou' guarda o motivo e você quebra a objeção na mesma resposta; " +
+        "Registre o que o cliente disse sobre a compra. Use 'comprou' SÓ com confirmação " +
+        "EXPLÍCITA nas palavras dele — 'comprei', 'finalizei', 'fiz o cadastro', 'chegou a " +
+        "maquininha'. Intenção ('quero essa', 'vou fazer') NÃO é confirmação — não chame com " +
+        "'comprou' por causa disso. 'comprou' libera o acompanhamento de pós-venda; " +
+        "'nao_comprou' guarda o motivo e você quebra a objeção na mesma resposta; " +
         "'nao_perturbe' quando ele pediu para não receber mais mensagens.",
       parameters: {
         type: "object",
@@ -340,6 +343,14 @@ async function executarResultadoCompra(
 
   if (resultado === "comprou") {
     await moverEstagio(admin, ctx.leadId, "convertido", { origem: "agente", detalhe });
+    // Fatia 6, Task 4 (spec §8.1): grava o campo PRÓPRIO que decide o modo
+    // pós-venda (definirModo, politica.ts) — não é mais o estágio "convertido"
+    // sozinho quem decide isso. A garantia de que "comprou" só chega aqui com
+    // confirmação EXPLÍCITA ("comprei", não "quero essa") é de PROMPT
+    // (COMO_USAR_AS_TOOLS em prompt.ts e SUPORTE_ANTES_DA_CONFIRMACAO em
+    // conhecimento.ts), não de parsing — esta tool grava o campo sempre que é
+    // chamada com resultado "comprou", sem tentar validar o texto do "detalhe".
+    await atualizarLead(admin, ctx.leadId, { compra_confirmada_em: new Date().toISOString() });
     // A régua morre aqui: quem comprou não recebe toque de remarketing.
     await limparAgendamento(admin, ctx.conversaId);
     return {
