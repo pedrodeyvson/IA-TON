@@ -2301,9 +2301,29 @@ export function ListaConversas() {
 }
 ```
 
-- [ ] **Step 7: Ligar no layout do inbox**
+- [ ] **Step 7: Ligar no layout do inbox e criar o stub da rota de conversa**
 
 Em `src/routes/_app/inbox.tsx`, trocar o `<p>` placeholder por `<ListaConversas />`, importando de `@/components/crm/ListaConversas`.
+
+⚠️ O `Link` do TanStack Router é tipado contra as rotas geradas: apontar para `/inbox/$conversaId` antes que o arquivo exista dá três erros de tipo (`TS2322` no `to`, `TS2353` em cada param). Como a Task 10 é que preenche essa tela, crie aqui o esqueleto — mesmo padrão que a Task 10 usa para `PainelLead`.
+
+Cria `src/routes/_app/inbox.$conversaId.tsx`:
+
+```tsx
+import { createFileRoute } from "@tanstack/react-router";
+
+// Esqueleto: a Task 10 preenche o corpo. Existe desde já porque o Link da
+// lista é tipado contra a árvore de rotas gerada — sem o arquivo, apontar
+// para cá não compila. A assinatura de busca já é a definitiva.
+export const Route = createFileRoute("/_app/inbox/$conversaId")({
+  validateSearch: (busca: Record<string, unknown>) => ({
+    leadId: String(busca.leadId ?? ""),
+  }),
+  component: () => null,
+});
+```
+
+Rode `bun run build` depois de criá-lo para o plugin regenerar `src/routeTree.gen.ts`, e só então confira o `tsc`.
 
 - [ ] **Step 8: Verificar manualmente**
 
@@ -2327,7 +2347,7 @@ git commit -m "feat(inbox): lista de conversas com filtros e polling"
 ### Task 10: A conversa — histórico, mídia e resposta
 
 **Files:**
-- Create: `src/routes/_app/inbox.$conversaId.tsx`
+- Modify: `src/routes/_app/inbox.$conversaId.tsx` (a Task 9 deixou o esqueleto; troque o corpo, mantendo o `validateSearch`)
 - Create: `src/components/crm/Historico.tsx`
 - Create: `src/components/crm/Bolha.tsx`
 - Create: `src/components/crm/CaixaDeResposta.tsx`
