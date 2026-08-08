@@ -41,6 +41,13 @@ export const sair = createServerFn({ method: "POST" })
 export const obterSessaoAtual = createServerFn({ method: "GET" })
   .middleware([registrarErros])
   .handler(async (): Promise<{ id: string; email?: string } | null> => {
-    const { obterUsuario } = await import("./sessao.server.ts");
-    return obterUsuario();
+    // Devolve null para quem está autenticado mas NÃO é dono. O guard do
+    // `_app` usa esta função, e sem a checagem uma conta qualquer criada em
+    // /auth/v1/signup passaria pelo guard e veria a casca do CRM — com todas
+    // as server functions devolvendo 403 e a tela quebrada, em vez de ser
+    // mandada para o login. Autenticado não é autorizado.
+    const { obterUsuario, ehDono } = await import("./sessao.server.ts");
+    const usuario = await obterUsuario();
+    if (!usuario) return null;
+    return (await ehDono(usuario.id)) ? usuario : null;
   });

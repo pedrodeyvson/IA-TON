@@ -77,3 +77,40 @@ export async function obterUsuario(
     return null;
   }
 }
+
+/**
+ * O usuário está em `public.donos`?
+ *
+ * Autenticado NÃO é o mesmo que autorizado. As server functions rodam com
+ * service role, que ignora o RLS — então a barreira que a migration
+ * 20260808d levantou no banco protege só o acesso direto via PostgREST, e o
+ * CRM não passa por lá. Sem esta checagem, qualquer conta criada em
+ * /auth/v1/signup (a publishable key está no bundle) lê todos os leads e
+ * mensagens E escreve: dispara WhatsApp real, move estágio, apaga tarefa.
+ *
+ * Falha FECHADO: erro de banco vira "não é dono". Recusar acesso numa
+ * indisponibilidade é o lado certo de errar para a fronteira de segurança do
+ * app inteiro.
+ */
+export async function ehDono(
+  usuarioId: string,
+  deps: { admin?: any } = {},
+): Promise<boolean> {
+  try {
+    const admin =
+      deps.admin ?? (await import("../../integrations/supabase/client.server.ts")).supabaseAdmin;
+    const { data, error } = await admin
+      .from("donos")
+      .select("user_id")
+      .eq("user_id", usuarioId)
+      .maybeSingle();
+    if (error) {
+      console.error("[auth] falha ao conferir donos — negando acesso:", error.message);
+      return false;
+    }
+    return Boolean(data);
+  } catch (err: any) {
+    console.error("[auth] exceção ao conferir donos — negando acesso:", err?.message ?? err);
+    return false;
+  }
+}

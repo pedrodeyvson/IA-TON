@@ -8,13 +8,28 @@ import { createMiddleware } from "@tanstack/react-start";
  * As server functions usam o client de service role, que ignora o RLS. Uma
  * função sem este middleware é um endpoint público no banco — há um
  * teste em crm.functions.test.ts que falha se alguma esquecer.
+ *
+ * Duas checagens, e a segunda não é redundante:
+ *
+ * 1. AUTENTICADO — `auth.getUser()`, que valida contra o servidor do Supabase.
+ *    `getSession()` só decodifica o cookie, e um cookie forjado passaria.
+ * 2. AUTORIZADO — está em `public.donos`. Como o service role ignora o RLS, a
+ *    barreira que a migration 20260808d criou no banco protege apenas o
+ *    PostgREST; por aqui ela não é consultada por ninguém. Sem o passo 2,
+ *    qualquer conta criada em /auth/v1/signup (a publishable key vai no bundle
+ *    do cliente) vira operador do CRM com acesso total de leitura E escrita.
  */
 export const exigirSessao = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
-    const { obterUsuario } = await import("./sessao.server.ts");
+    const { obterUsuario, ehDono } = await import("./sessao.server.ts");
     const usuario = await obterUsuario();
     if (!usuario) {
       throw new Response("nao_autenticado", { status: 401 });
+    }
+    if (!(await ehDono(usuario.id))) {
+      // 403, não 401: a sessão é válida, o que falta é permissão. Mandar para
+      // o login não resolveria nada — ele já está logado.
+      throw new Response("nao_autorizado", { status: 403 });
     }
     return next({ context: { usuario } });
   }

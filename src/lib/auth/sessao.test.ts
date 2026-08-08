@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { obterUsuario } from "./sessao.server.ts";
+import { obterUsuario, ehDono } from "./sessao.server.ts";
 
 function clienteFalso(resposta: any) {
   return { auth: { getUser: async () => resposta } };
@@ -62,4 +62,49 @@ test("com criarCliente injetado, nada do runtime do TanStack é tocado", async (
     },
   });
   assert.equal(chamou, true);
+});
+
+// ===================== autorização: ehDono =====================
+// Autenticado NÃO é autorizado. As server functions usam service role e
+// ignoram o RLS, então `public.donos` só protege o PostgREST — por aqui, quem
+// tem que consultar a tabela é este código.
+
+/** Admin falso mínimo: só o caminho from().select().eq().maybeSingle(). */
+function criarAdminDeDonos(ids: string[]) {
+  return {
+    from: () => ({
+      select: () => ({
+        eq: (_coluna: string, valor: string) => ({
+          maybeSingle: async () => ({
+            data: ids.includes(valor) ? { user_id: valor } : null,
+            error: null,
+          }),
+        }),
+      }),
+    }),
+  };
+}
+
+test("ehDono: usuário presente em donos é autorizado", async () => {
+  assert.equal(await ehDono("u1", { admin: criarAdminDeDonos(["u1"]) }), true);
+});
+
+test("ehDono: conta criada por signup, ausente de donos, é recusada", async () => {
+  // Cenário real: publishable key sai no bundle -> /auth/v1/signup -> login no
+  // CRM. Sem esta recusa ele lê todo lead e dispara WhatsApp em nome da casa.
+  assert.equal(await ehDono("intruso", { admin: criarAdminDeDonos(["u1"]) }), false);
+});
+
+test("ehDono: falha do banco NEGA o acesso, não libera", async () => {
+  const comErro = {
+    from: () => ({ select: () => ({ eq: () => ({
+      maybeSingle: async () => ({ data: null, error: { message: "conexão caiu" } }),
+    }) }) }),
+  };
+  assert.equal(await ehDono("u1", { admin: comErro }), false);
+});
+
+test("ehDono: exceção também NEGA — falha fechado em qualquer caminho", async () => {
+  const explode = { from: () => { throw new Error("boom"); } };
+  assert.equal(await ehDono("u1", { admin: explode }), false);
 });
