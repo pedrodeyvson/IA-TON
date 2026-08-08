@@ -1488,6 +1488,59 @@ test("conversa pausada durante a chamada ao modelo não envia", async () => {
 
 Se o dublê existente não permitir variar a resposta por chamada, estenda-o com um callback `conversa()` como acima, mantendo o comportamento atual quando o callback não for passado — os testes vizinhos não podem quebrar.
 
+⚠️ **Vire o flag de dentro do dublê do modelo, não por contagem de leituras.** Contar leituras pina apenas que existe uma segunda consulta — um recheck colocado logo depois do `decidirTurno`, antes da chamada ao modelo, passaria no teste sem consertar nada, porque a janela que importa é justamente a da chamada ao modelo. Fazer o `chamar` marcar a pausa amarra a ordem de verdade:
+
+```ts
+  let pausada = false;
+  const admin = adminDeConversa({
+    "conversas.select": () => ({
+      data: { id: "conv-1", lead_id: "lead-1", pausada_pela_ia: pausada },
+      error: null,
+    }),
+  });
+  // ...
+    chamar: async () => {
+      pausada = true; // o Pedro assumiu ENQUANTO o modelo respondia
+      return { texto: "resposta da IA", toolCalls: [] };
+    },
+```
+
+E acrescente um segundo teste, para o caminho de falha de leitura:
+
+```ts
+test("falha ao reler a pausa não envia — vai como erro para o worker tentar de novo", async () => {
+  // Sem conseguir ler o estado, não dá para afirmar que ninguém assumiu. E
+  // "erro" em vez de "pulado" porque o worker dá retry com backoff no
+  // primeiro e desiste no segundo.
+  let leituras = 0;
+  const admin = adminDeConversa({
+    "conversas.select": () => {
+      leituras += 1;
+      return leituras === 1
+        ? { data: { id: "conv-1", lead_id: "lead-1", pausada_pela_ia: false }, error: null }
+        : { data: null, error: { message: "connection reset" } };
+    },
+  });
+
+  let enviou = false;
+  const resultado = await executarTurno(
+    admin,
+    { conversaId: "conv-1", leadId: "lead-1", motivo: "resposta" },
+    {
+      chamar: async () => ({ texto: "resposta da IA", toolCalls: [] }),
+      enviar: async () => {
+        enviou = true;
+        return { messageid: "prov-1" };
+      },
+    },
+  );
+
+  assert.equal(enviou, false);
+  assert.equal(resultado.status, "erro");
+  assert.match(resultado.motivo ?? "", /connection reset/i);
+});
+```
+
 - [ ] **Step 2: Rodar e ver falhar**
 
 Run: `node --test --experimental-strip-types src/lib/agente/agente.server.test.ts`
@@ -1502,11 +1555,21 @@ Em `src/lib/agente/agente.server.ts`, imediatamente antes da chamada a `enviarTe
       // modelo demora. Se o Pedro assumiu a conversa nesse intervalo, a
       // resposta da IA não pode sair atrás da dele. Sobra a janela entre esta
       // leitura e o POST para a UAZAPI, de milissegundos: aceitável.
-      const { data: conversaAgora } = await admin
+      const { data: conversaAgora, error: erroRecheck } = await admin
         .from("conversas")
         .select("pausada_pela_ia")
         .eq("id", ctx.conversaId)
         .maybeSingle();
+
+      // Falhar fechado: sem conseguir ler o estado da pausa, não dá para
+      // afirmar que ninguém assumiu a conversa, e enviar seria justamente o
+      // atropelo que este recheck existe para impedir. Vai como "erro", não
+      // como "pulado", porque o worker dá retry com backoff em erro e
+      // simplesmente desiste no pulado — assim uma falha transitória de
+      // leitura atrasa a resposta em vez de engoli-la.
+      if (erroRecheck) {
+        return { status: "erro", motivo: `falha ao reler a pausa: ${erroRecheck.message}` };
+      }
       if (conversaAgora?.pausada_pela_ia) {
         return { status: "pulado", motivo: "pausada_durante_o_turno" };
       }
