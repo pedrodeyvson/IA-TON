@@ -131,7 +131,7 @@ export async function coletarEvidenciaDoLead(admin: any, leadId: string) {
 
   const { data: lead } = await admin
     .from("leads")
-    .select("estagio, maquina_interesse, link_enviado_em")
+    .select("estagio, maquina_interesse, link_enviado_em, compra_confirmada_em")
     .eq("id", leadId)
     .maybeSingle();
 
@@ -150,7 +150,10 @@ export async function coletarEvidenciaDoLead(admin: any, leadId: string) {
     respostasDoLead,
     temInteresse: Boolean(lead?.maquina_interesse),
     linkEnviado: Boolean(lead?.link_enviado_em),
-    compraConfirmada: lead?.estagio === "convertido",
+    // Fatia 6, Task 4: quem decide "comprou de verdade" é compra_confirmada_em
+    // (só `registrar_resultado_compra` grava), não mais o estágio sozinho —
+    // ver o mesmo raciocínio em `definirModo` (politica.ts).
+    compraConfirmada: Boolean(lead?.compra_confirmada_em),
   };
 }
 

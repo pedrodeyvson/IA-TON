@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { criarAdminFake } from "./admin-fake.ts";
 import {
   obterLead, atualizarLead, moverEstagio, marcarPrecisaAtencao, registrarNota,
+  coletarEvidenciaDoLead,
 } from "./leads.server.ts";
 
 test("obterLead busca por id e devolve a linha", async () => {
@@ -71,6 +72,47 @@ test("marcarPrecisaAtencao liga a flag e registra o motivo no evento", async () 
   const evento = admin.chamadas.find((c) => c.tabela === "eventos_lead");
   assert.equal(evento?.payload.tipo_evento, "escalado");
   assert.equal(evento?.payload.detalhe.motivo, "pediu para falar com humano");
+});
+
+// Achado Importante da revisão final da Fatia 6: `compraConfirmada` lia
+// `estagio === "convertido"`, um proxy que "funcionava por acidente" — hoje
+// quem grava a confirmação de verdade é `compra_confirmada_em`
+// (registrar_resultado_compra, Task 4). Um lead pode estar em "convertido"
+// por outro caminho sem ter essa data, e vice-versa não deveria acontecer,
+// mas o campo certo para ler é sempre a data, não o estágio.
+
+test("coletarEvidenciaDoLead lê compraConfirmada de compra_confirmada_em, não do estágio", async () => {
+  const admin = criarAdminFake({
+    "leads.select": {
+      data: {
+        estagio: "convertido",
+        maquina_interesse: "T3",
+        link_enviado_em: "2026-08-08T12:00:00.000Z",
+        compra_confirmada_em: null,
+      },
+      error: null,
+    },
+    "mensagens.select": { data: [{ conteudo: "comprei, chegou certinho" }], error: null },
+  });
+  const ev = await coletarEvidenciaDoLead(admin, "L1");
+  assert.equal(ev.compraConfirmada, false, "estagio convertido sozinho não basta mais");
+});
+
+test("coletarEvidenciaDoLead confirma compra quando compra_confirmada_em está preenchido", async () => {
+  const admin = criarAdminFake({
+    "leads.select": {
+      data: {
+        estagio: "convertido",
+        maquina_interesse: "T3",
+        link_enviado_em: "2026-08-08T12:00:00.000Z",
+        compra_confirmada_em: "2026-08-08T13:00:00.000Z",
+      },
+      error: null,
+    },
+    "mensagens.select": { data: [{ conteudo: "comprei, chegou certinho" }], error: null },
+  });
+  const ev = await coletarEvidenciaDoLead(admin, "L1");
+  assert.equal(ev.compraConfirmada, true);
 });
 
 test("registrarNota grava evento do tipo nota", async () => {

@@ -16,7 +16,15 @@ const REF = "CEA4255F-0783-4EAD-AA55-48C682BA8FA7";
 function adminComLead(estagio = "qualificando") {
   return criarAdminFake({
     "leads.select": {
-      data: { id: "L1", estagio, maquina_interesse: "T3", link_enviado_em: null },
+      data: {
+        id: "L1",
+        estagio,
+        maquina_interesse: "T3",
+        // Espelha o mundo real: quem está em "link_enviado" (ou depois) só
+        // chegou lá porque o link SAIU. `registrar_resultado_compra` (Fatia
+        // 6, revisão final) exige essa evidência antes de aceitar "comprou".
+        link_enviado_em: estagio === "link_enviado" ? "2026-08-08T12:00:00.000Z" : null,
+      },
       error: null,
     },
     "mensagens.select": { data: [{ conteudo: "uso a maquininha da Cielo" }], error: null },
@@ -247,6 +255,23 @@ test("resultado comprou grava compra_confirmada_em", async () => {
   assert.ok(confirmacao, "tem que gravar compra_confirmada_em");
   const gravadoEm = new Date(confirmacao!.payload.compra_confirmada_em).getTime();
   assert.ok(gravadoEm >= antes, "o timestamp é do momento da confirmação, não anterior");
+});
+
+test("resultado comprou sem link_enviado_em é recusado — sem link não há como ter comprado", async () => {
+  const admin = adminComLead("qualificando"); // link_enviado_em fica null
+  const r = await executarTool(admin, "registrar_resultado_compra", { resultado: "comprou" }, CTX);
+
+  assert.match(r.conteudo, /nunca recebeu o link/i);
+  assert.equal(updateDe(admin, "leads").estagio, undefined, "não pode converter sem evidência");
+  assert.equal(
+    admin.chamadas.some(
+      (c: any) =>
+        c.tabela === "leads" && c.operacao === "update" && c.payload.compra_confirmada_em !== undefined,
+    ),
+    false,
+    "sem link, sem evento de compra na Meta CAPI",
+  );
+  assert.equal(updateDe(admin, "leads").precisa_atencao, true);
 });
 
 test("resultado nao_comprou NÃO grava compra_confirmada_em", async () => {

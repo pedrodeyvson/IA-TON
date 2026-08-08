@@ -342,6 +342,29 @@ async function executarResultadoCompra(
       : "sem detalhe informado";
 
   if (resultado === "comprou") {
+    // Trava de evidência (achado Bloqueador da revisão final da Fatia 6):
+    // sem isso, um "comprou" alucinado ou mal-entendido pelo modelo dispara
+    // Purchase real na Meta CAPI com valor em BRL, e não passa por
+    // `limitarEstagio` (que exigiria compraConfirmada JÁ true — circular
+    // demais para governar a própria concessão). O guard que faz sentido
+    // aqui é: ninguém compra uma máquina cujo link nunca recebeu. Mesmo
+    // padrão de `executarRegistrarLink` — recusa, não mata o turno, e chama
+    // o dono para conferir em vez de arriscar um evento de negócio falso.
+    const evidencia = await coletarEvidenciaDoLead(admin, ctx.leadId);
+    if (!evidencia.linkEnviado) {
+      await marcarPrecisaAtencao(
+        admin,
+        ctx.leadId,
+        `IA tentou registrar "comprou" sem link_enviado_em (detalhe: ${detalhe}).`,
+      );
+      return {
+        conteudo:
+          "Erro: este lead nunca recebeu o link de compra — não é possível confirmar uma " +
+          "compra que não teve como acontecer. Nada foi gravado, nenhum evento foi disparado. " +
+          "Se o cliente comprou por outro canal, escale para o Pedro conferir.",
+      };
+    }
+
     await moverEstagio(admin, ctx.leadId, "convertido", { origem: "agente", detalhe });
     // Fatia 6, Task 4 (spec §8.1): grava o campo PRÓPRIO que decide o modo
     // pós-venda (definirModo, politica.ts) — não é mais o estágio "convertido"
