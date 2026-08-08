@@ -2417,11 +2417,29 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
           </div>
         )}
 
+        {mensagem.tipo === "video" && midia?.url && (
+          <video controls src={midia.url} className="max-h-64 rounded" />
+        )}
+
+        {mensagem.tipo === "sticker" && midia?.url && (
+          <img src={midia.url} alt="Figurinha" className="max-h-32" />
+        )}
+
         {mensagem.tipo === "documento" && midia?.url && (
           <a href={midia.url} target="_blank" rel="noreferrer" className="underline">
             Abrir documento
           </a>
         )}
+
+        {/* Rede de segurança: `tipo` vem do provedor e a lista pode crescer.
+            Sem isto, um tipo novo com mídia renderiza bolha vazia e a mensagem
+            some do histórico sem ninguém perceber. */}
+        {!mensagem.conteudo &&
+          !["texto", "audio", "imagem", "video", "sticker", "documento"].includes(mensagem.tipo) && (
+            <p className="italic text-[var(--color-suave)]">
+              Mensagem de tipo "{mensagem.tipo}" — abra no WhatsApp para ver.
+            </p>
+          )}
 
         {mensagem.conteudo && <p className="whitespace-pre-wrap">{mensagem.conteudo}</p>}
 
@@ -2589,6 +2607,31 @@ export function CaixaDeResposta({
 }
 ```
 
+- [ ] **Step 3b: `obterEstadoDaConversa` em `crm.functions.ts`**
+
+A tela precisa saber se a IA está pausada *nesta* conversa, e a listagem do inbox não serve para isso: ela traz só os 50 leads mais ativos, então uma conversa fora da janela some do cache e o estado viria errado — "IA respondendo" para uma conversa já assumida.
+
+Acrescenta ao final de `src/lib/crm/crm.functions.ts` (o invariante da Task 5 já cobre esta função automaticamente):
+
+```ts
+export const obterEstadoDaConversa = createServerFn({ method: "GET" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porConversa.parse(dados))
+  .handler(async ({ data }): Promise<{ pausada_pela_ia: boolean } | null> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: conversa, error } = await supabaseAdmin
+      .from("conversas")
+      .select("pausada_pela_ia")
+      .eq("id", data.conversaId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!conversa) return null;
+    return { pausada_pela_ia: Boolean(conversa.pausada_pela_ia) };
+  });
+```
+
+Lançar no erro em vez de devolver `null` é proposital: `null` significa "conversa não existe", e confundir isso com "não consegui ler" faria a tela afirmar um estado de controle que ela não verificou.
+
 - [ ] **Step 4: Preencher a rota da conversa**
 
 A Task 9 deixou este arquivo como esqueleto (`component: () => null`) para que o `Link` da lista compilasse. Substitua o conteúdo inteiro, mantendo o mesmo `validateSearch`.
@@ -2598,11 +2641,15 @@ A Task 9 deixou este arquivo como esqueleto (`component: () => null`) para que o
 ```tsx
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { devolverParaIa, obterLeadDoCrm, pausarIaNaConversa } from "@/lib/crm/crm.functions";
+import {
+  devolverParaIa,
+  obterEstadoDaConversa,
+  obterLeadDoCrm,
+  pausarIaNaConversa,
+} from "@/lib/crm/crm.functions";
 import { CaixaDeResposta } from "@/components/crm/CaixaDeResposta";
 import { Historico } from "@/components/crm/Historico";
 import { PainelLead } from "@/components/crm/PainelLead";
-import { useConversas } from "@/components/crm/useConversas";
 
 export const Route = createFileRoute("/_app/inbox/$conversaId")({
   validateSearch: (busca: Record<string, unknown>) => ({
@@ -2622,18 +2669,26 @@ function TelaConversa() {
     enabled: Boolean(leadId),
   });
 
-  // O estado da IA vive na conversa, que já vem na listagem do inbox —
-  // reaproveita o cache do hook em vez de uma consulta só para isso.
-  const { data: conversas = [] } = useConversas();
-  const conversa = conversas
-    .flatMap((l: any) => l.conversas ?? [])
-    .find((c: any) => c.id === conversaId);
-  const iaAtiva = !conversa?.pausada_pela_ia;
+  // Consulta própria, e não o cache da listagem: `listarConversas` traz só os
+  // 50 leads mais ativos, então uma conversa fora dessa janela viria undefined
+  // e `!undefined?.pausada_pela_ia` daria "IA respondendo" para uma conversa
+  // que o Pedro já assumiu — junto com o aviso de que responder assume o
+  // controle, que ele já tem. Errar isso é pior que uma consulta a mais.
+  const { data: estado } = useQuery({
+    queryKey: ["conversa", conversaId],
+    queryFn: () => obterEstadoDaConversa({ data: { conversaId } }),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
+  const iaAtiva = estado ? !estado.pausada_pela_ia : false;
 
   const alternarIa = useMutation({
     mutationFn: () =>
       iaAtiva ? pausarIaNaConversa({ data: { conversaId } }) : devolverParaIa({ data: { conversaId } }),
-    onSuccess: () => clienteQuery.invalidateQueries({ queryKey: ["conversas"] }),
+    onSuccess: () => {
+      clienteQuery.invalidateQueries({ queryKey: ["conversa", conversaId] });
+      clienteQuery.invalidateQueries({ queryKey: ["conversas"] });
+    },
   });
 
   return (
