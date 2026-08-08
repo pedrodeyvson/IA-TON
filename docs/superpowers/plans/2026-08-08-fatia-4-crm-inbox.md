@@ -19,6 +19,12 @@
 - **Injeção de dependência para teste** segue o padrão existente (`DepsEnvio`, `DepsMoverEstagio`): parâmetro `deps` opcional, no fim da assinatura, nunca passado em produção.
 - **Idioma:** nomes de arquivo, funções, variáveis e comentários em português, como todo o código existente.
 - **Rodar a suíte inteira:** `bun run test` (que é `node --test --experimental-strip-types "src/**/*.test.ts"`).
+- **Baseline do TypeScript:** `bunx tsc --noEmit` já reportava **7 erros antes desta fatia começar**, todos em arquivos de teste pré-existentes e nenhum em código de produção:
+  - `src/lib/agente/prompt.test.ts` linhas 139, 144, 171, 172 — TS2345, `string | ParteDeConteudo[]`
+  - `src/lib/capi/capi.server.test.ts` linha 125 — TS2345, `"QualifiedLead"`
+  - `src/lib/crm/conversas.server.test.ts` linhas 182, 183 — TS18048, `'chamada' is possibly undefined`
+
+  O critério em todas as tasks é **nenhum erro novo além destes sete**, não "zero erros". Corrigir os pré-existentes está fora do escopo desta fatia — se algum sumir por efeito colateral, ótimo, mas não é objetivo.
 - **`src/routeTree.gen.ts` é gerado** pelo plugin do TanStack Router. Não editar à mão; ele muda sozinho ao criar rotas e entra nos commits.
 
 ---
@@ -1472,8 +1478,9 @@ Expected: PASS — o teste percorre todas as `createServerFn` do arquivo, então
 
 - [ ] **Step 3: Rodar a suíte inteira e o TypeScript**
 
-Run: `bun run test && bunx tsc --noEmit`
-Expected: PASS, sem erro de tipo
+Run: `bun run test` e depois, em separado, `bunx tsc --noEmit`
+(separados de propósito: o `tsc` sai com código 1 por causa dos 7 erros pré-existentes, então encadear com `&&` engoliria o comando seguinte)
+Expected: suíte PASS; `tsc` sem nenhum erro além dos 7 listados nas Global Constraints
 
 - [ ] **Step 4: Commit**
 
@@ -2340,7 +2347,7 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
 - [ ] **Step 3: Rodar o TypeScript**
 
 Run: `bunx tsc --noEmit`
-Expected: sem erro
+Expected: nenhum erro além dos 7 pré-existentes listados nas Global Constraints
 
 - [ ] **Step 4: Verificar manualmente**
 
@@ -2489,8 +2496,8 @@ Run: `bun run dev`
 
 - [ ] **Step 4: Rodar tudo**
 
-Run: `bun run test && bunx tsc --noEmit && bun run build`
-Expected: testes passando, sem erro de tipo, build concluído
+Run, cada um em separado (o `tsc` sai com código 1 pelos erros pré-existentes e cortaria um encadeamento com `&&`): `bun run test`, `bunx tsc --noEmit`, `bun run build`
+Expected: testes passando; `tsc` sem erro além dos 7 das Global Constraints; build concluído
 
 - [ ] **Step 5: Commit**
 
@@ -2632,8 +2639,9 @@ Run: `bun run dev`
 
 - [ ] **Step 7: Rodar tudo e commitar**
 
+Rode `bun run test` e `bunx tsc --noEmit` separadamente e confira os dois antes de commitar — o `tsc` sai com código 1 pelos 7 erros pré-existentes, então encadear com `&&` impediria o commit.
+
 ```bash
-bun run test && bunx tsc --noEmit
 git add src/lib/auth/sessao-expirada.ts src/lib/auth/sessao-expirada.test.ts \
   src/components/crm/CaixaDeResposta.tsx
 git commit -m "feat(inbox): sessão expirada leva ao login sem perder o texto digitado"
@@ -2650,8 +2658,8 @@ git commit -m "feat(inbox): sessão expirada leva ao login sem perder o texto di
 
 - [ ] **Step 1: Rodar a suíte completa e o build**
 
-Run: `bun run test && bunx tsc --noEmit && bun run lint && bun run build`
-Expected: tudo verde. Se algo falhar, corrigir antes de seguir — esta task não "documenta" falha conhecida.
+Run, cada um em separado: `bun run test`, `bunx tsc --noEmit`, `bun run lint`, `bun run build`
+Expected: testes passando, lint limpo, build concluído, e o `tsc` sem nenhum erro além dos 7 pré-existentes das Global Constraints. Se algo mais falhar, corrigir antes de seguir — esta task não "documenta" falha conhecida.
 
 - [ ] **Step 2: Executar o roteiro com uma conversa real**
 
