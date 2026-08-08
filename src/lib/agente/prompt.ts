@@ -53,8 +53,12 @@ const COMO_USAR_AS_TOOLS = `
   Chame assim que souber algo novo, sem esperar o fim do papo.
 - **registrar_link_enviado** — você escolhe o PRODUTO e ela devolve o link pronto para você
   colar na resposta. **Você nunca escreve endereço nenhum.** Chame só depois de qualificar e
-  quando o cliente demonstrar intenção (perguntou como pega, disse que quer). Se ele ainda não
-  decidiu a máquina, escolha "catalogo".
+  quando o cliente demonstrar intenção de COMPRAR — "quero essa", "como faço pra pegar",
+  "bora fechar", "pode mandar o link". **Responder qual máquina quer VER ou COMPARAR não é
+  pedido de compra** — se ele disse só "T3" respondendo "quer ver a T2 ou a T3?", isso é
+  escolha de comparação, não intenção de fechar; continue comparando/qualificando e só chame
+  esta tool quando ele confirmar que quer aquela máquina de verdade. Se ele ainda não decidiu
+  a máquina, escolha "catalogo".
 - **registrar_resultado_compra** — quando o cliente disser o que aconteceu:
   "comprou" (aí você entra em modo pós-venda), "nao_comprou" (mande o motivo em detalhe e
   quebre a objeção na mesma mensagem, sem desistir) ou "nao_perturbe" (ele pediu para parar).
