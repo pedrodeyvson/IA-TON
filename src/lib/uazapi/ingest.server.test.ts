@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ingerirEvento } from "./ingest.server.ts";
+import { ingerirEvento, devePerfilSincronizar } from "./ingest.server.ts";
 import { normalizarTelefoneBr } from "../telefone.ts";
 
 /**
@@ -226,4 +226,26 @@ test("uma segunda mensagem de entrada do mesmo lead continua sendo processada co
   } finally {
     if (tokenOriginal !== undefined) process.env.UAZAPI_TOKEN = tokenOriginal;
   }
+});
+
+// `devePerfilSincronizar` é o gate puro que decide se vale a pena buscar
+// nome/foto do perfil no WhatsApp. Testado direto, sem fake de banco: com
+// UAZAPI_TOKEN ausente no ambiente de teste, sincronizarPerfil é no-op, então
+// não dá pra distinguir "chamado mas não fez nada" de "nunca chamado" via
+// efeito no banco (os dois caminhos deixam o mesmo estado no fake local
+// acima). Estas 4 chamadas cobrem leadNovo × direção diretamente.
+test("devePerfilSincronizar: lead novo, mensagem de entrada -> true", () => {
+  assert.equal(devePerfilSincronizar(true, "in"), true);
+});
+
+test("devePerfilSincronizar: lead novo, mensagem de saída -> true", () => {
+  assert.equal(devePerfilSincronizar(true, "out"), true);
+});
+
+test("devePerfilSincronizar: lead existente, mensagem de entrada -> true", () => {
+  assert.equal(devePerfilSincronizar(false, "in"), true);
+});
+
+test("devePerfilSincronizar: lead existente, mensagem de saída -> false", () => {
+  assert.equal(devePerfilSincronizar(false, "out"), false);
 });

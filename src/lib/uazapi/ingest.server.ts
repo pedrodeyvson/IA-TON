@@ -15,6 +15,14 @@ export type ResultadoIngest = {
 const BUCKET_MIDIA = "crm-midia";
 const TIPOS_COM_MIDIA = new Set(["audio", "imagem", "video", "documento", "sticker"]);
 
+/** Perfil (nome/foto) só vale a pena buscar para: lead novo (qualquer
+ *  direção), ou lead existente numa mensagem de ENTRADA. Nunca para lead
+ *  existente numa mensagem de SAÍDA — evitaria martelar a UAZAPI a cada
+ *  mensagem que a própria IA/humano manda. */
+export function devePerfilSincronizar(leadNovo: boolean, direcao: "in" | "out"): boolean {
+  return leadNovo || direcao === "in";
+}
+
 /** A UAZAPI devolve `fileURL` (URL cacheada) em vez de base64 — bem mais leve. */
 async function baixarMidia(messageId: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
   const token = process.env.UAZAPI_TOKEN;
@@ -239,7 +247,7 @@ async function ingerirMensagem(admin: any, item: any): Promise<ResultadoIngest> 
   // em mensagem de ENTRADA — mesma regra do CPI (spec Fatia 5), para não
   // martelar a UAZAPI a cada mensagem que NÓS mandamos. sincronizarPerfil já
   // curto-circuita internamente quando não há nada a atualizar.
-  if (alvo.leadNovo || msg.direcao === "in") {
+  if (devePerfilSincronizar(alvo.leadNovo, msg.direcao)) {
     try {
       const { sincronizarPerfil } = await import("./perfil.server.ts");
       const { telefone } = resolverTelefoneReal(item, item?.key ?? {});
