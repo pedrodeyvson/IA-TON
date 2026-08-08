@@ -44,7 +44,23 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
   }
 
   const mudarEstagio = useMutation({
-    mutationFn: (estagio: string) => moverEstagioDoLead({ data: { leadId, estagio } }),
+    // `moverEstagioDoLead` devolve `{ ok: mudou }` em vez de lançar. Sem
+    // checar, a mutation "tem sucesso" com o estágio intacto e o otimismo
+    // abaixo deixa o <select> exibindo um valor que o banco nunca aceitou —
+    // a mesma falha silenciosa já fechada em `resolver`.
+    //
+    // Mas `ok:false` tem dois significados: lead inexistente E no-op quando
+    // `de === para` (leads.server.ts:77 via camposDeTransicao). Só o primeiro
+    // é falha. Comparar com o estágio atual separa os dois aqui, sem mexer em
+    // `moverEstagio`, que a fatia 2 também usa.
+    mutationFn: async (estagio: string) => {
+      const eraOMesmo = lead?.estagio === estagio;
+      const resultado = await moverEstagioDoLead({ data: { leadId, estagio } });
+      if (!resultado?.ok && !eraOMesmo) {
+        throw new Error("o servidor não aplicou a mudança de estágio");
+      }
+      return resultado;
+    },
     // O <select> é controlado por `lead.estagio`. Sem escrever o valor novo
     // no cache ANTES da ida ao servidor, o React reconcilia o elemento com o
     // valor antigo assim que o evento de change termina e devolve o DOM ao
@@ -94,9 +110,20 @@ export function PainelLead({ leadId, conversaId }: { leadId: string; conversaId:
   // Um único ponto de exibição para as cinco mutations do painel. A mais
   // recente ganha: o `submittedAt` de cada mutation é o instante do
   // `mutate()`, então a última ação do operador é a que ele vê comentada.
-  const erroDoPainel = [mudarEstagio, salvarCampo, salvarNota, resolver, silenciar]
-    .filter((mutation) => mutation.error)
-    .sort((a, b) => b.submittedAt - a.submittedAt)[0]?.error;
+  //
+  // O `.error` de uma useMutation NÃO é limpo pelo sucesso de outra. Filtrar
+  // só por `.error` deixava o aviso grudado: uma falha ao mudar estágio ficava
+  // na tela para sempre enquanto o operador salvava nome e nota com sucesso,
+  // acusando de erro um estado que já tinha passado. Só conta o erro se
+  // nenhuma mutation posterior teve sucesso.
+  const mutations = [mudarEstagio, salvarCampo, salvarNota, resolver, silenciar];
+  const ultimoSucessoEm = Math.max(
+    0,
+    ...mutations.filter((m) => m.isSuccess).map((m) => m.submittedAt ?? 0),
+  );
+  const erroDoPainel = mutations
+    .filter((m) => m.error && (m.submittedAt ?? 0) >= ultimoSucessoEm)
+    .sort((a, b) => (b.submittedAt ?? 0) - (a.submittedAt ?? 0))[0]?.error;
 
   if (!lead) {
     return <aside className="border-l border-[var(--color-borda)] p-4">Carregando…</aside>;

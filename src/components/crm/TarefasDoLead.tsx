@@ -74,9 +74,17 @@ export function TarefasDoLead({ leadId }: { leadId: string }) {
   const podeCriar = Boolean(titulo.trim()) && !criar.isPending;
 
   // Ponto único de exibição das três mutations de tarefa; a mais recente ganha.
-  const erroDasTarefas = [criar, alternar, excluir]
-    .filter((mutation) => mutation.error)
-    .sort((a, b) => b.submittedAt - a.submittedAt)[0]?.error;
+  // O `.error` de uma useMutation não é limpo pelo sucesso de outra — sem o
+  // corte por `ultimoSucessoEm`, uma exclusão que falhou fica acusando erro
+  // enquanto o operador cria e conclui tarefas com sucesso.
+  const mutations = [criar, alternar, excluir];
+  const ultimoSucessoEm = Math.max(
+    0,
+    ...mutations.filter((m) => m.isSuccess).map((m) => m.submittedAt ?? 0),
+  );
+  const erroDasTarefas = mutations
+    .filter((m) => m.error && (m.submittedAt ?? 0) >= ultimoSucessoEm)
+    .sort((a, b) => (b.submittedAt ?? 0) - (a.submittedAt ?? 0))[0]?.error;
 
   return (
     <div className="flex flex-col gap-1">
