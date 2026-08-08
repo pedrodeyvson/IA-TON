@@ -2378,6 +2378,11 @@ const FUNDO: Record<string, string> = {
   humano: "var(--color-humano)",
 };
 
+/** Tipos que têm apresentação própria abaixo. Qualquer outro com mídia cai no
+ *  link genérico — é o que impede uma mensagem de sumir quando o WhatsApp
+ *  inventa um tipo novo. */
+const TIPOS_COM_RENDER_ESPECIFICO = new Set(["imagem", "audio", "video", "sticker", "documento"]);
+
 export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id: string) => void }) {
   const daCasa = mensagem.remetente !== "lead";
   const temMidia = Boolean(mensagem.media_path);
@@ -2433,13 +2438,14 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
 
         {/* Rede de segurança: `tipo` vem do provedor e a lista pode crescer.
             Sem isto, um tipo novo com mídia renderiza bolha vazia e a mensagem
-            some do histórico sem ninguém perceber. */}
-        {!mensagem.conteudo &&
-          !["texto", "audio", "imagem", "video", "sticker", "documento"].includes(mensagem.tipo) && (
-            <p className="italic text-[var(--color-suave)]">
-              Mensagem de tipo "{mensagem.tipo}" — abra no WhatsApp para ver.
-            </p>
-          )}
+            some do histórico sem ninguém perceber. Não é condicionado à
+            ausência de texto: mensagem com legenda E tipo desconhecido tem que
+            mostrar as duas coisas, não escolher uma. */}
+        {temMidia && !TIPOS_COM_RENDER_ESPECIFICO.has(mensagem.tipo) && midia?.url && (
+          <a href={midia.url} target="_blank" rel="noreferrer" className="underline">
+            Abrir arquivo
+          </a>
+        )}
 
         {mensagem.conteudo && <p className="whitespace-pre-wrap">{mensagem.conteudo}</p>}
 
@@ -2680,7 +2686,14 @@ function TelaConversa() {
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
-  const iaAtiva = estado ? !estado.pausada_pela_ia : false;
+  // Enquanto não sabemos, assume IA ativa — e não o contrário. O estado normal
+  // de uma conversa é a IA respondendo; pausada é a exceção, criada por uma
+  // ação explícita do Pedro. Errar para "ativa" mostra o aviso a mais, o que
+  // é inofensivo (responder pausa a IA de qualquer forma). Errar para
+  // "assumida" esconde o aviso justo na janela em que ele digita a primeira
+  // resposta, que é quando ele mais precisa dele.
+  const carregandoEstado = estado === undefined;
+  const iaAtiva = estado ? !estado.pausada_pela_ia : true;
 
   const alternarIa = useMutation({
     mutationFn: () =>
@@ -2700,11 +2713,15 @@ function TelaConversa() {
           <span className="ml-auto text-sm text-[var(--color-suave)]">
             {iaAtiva ? "IA respondendo" : "você assumiu"}
           </span>
+          {/* O botão fica fora do ar até o estado chegar: ele age sobre o
+              controle da conversa, e agir a partir de um palpite é diferente
+              de exibir um aviso a mais. */}
           <button
             onClick={() => alternarIa.mutate()}
-            className="rounded bg-[var(--color-painel)] px-3 py-1 text-sm"
+            disabled={carregandoEstado}
+            className="rounded bg-[var(--color-painel)] px-3 py-1 text-sm disabled:opacity-50"
           >
-            {iaAtiva ? "Assumir" : "Devolver para a IA"}
+            {carregandoEstado ? "…" : iaAtiva ? "Assumir" : "Devolver para a IA"}
           </button>
         </header>
 
