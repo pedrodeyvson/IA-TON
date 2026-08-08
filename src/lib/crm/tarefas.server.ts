@@ -40,12 +40,20 @@ export async function listarTarefas(
   return data ?? [];
 }
 
+/**
+ * LANÇA em falha de banco, igual `criarTarefa`.
+ *
+ * Antes o `error` era descartado e `alternarTarefaDoCrm` devolvia `{ ok: true }`
+ * fixo (src/lib/crm/crm.functions.ts:266) — a tela riscava/removia a tarefa e o
+ * banco continuava intacto. Como o retorno é uma constante, não há o que a UI
+ * possa conferir: o único ponto capaz de distinguir sucesso de falha é aqui.
+ */
 export async function alternarTarefa(
   admin: any,
   tarefaId: string,
   concluida: boolean,
 ): Promise<void> {
-  await admin
+  const { error } = await admin
     .from("tarefas")
     .update({
       concluida,
@@ -53,6 +61,8 @@ export async function alternarTarefa(
       atualizado_em: new Date().toISOString(),
     })
     .eq("id", tarefaId);
+
+  if (error) throw new Error(error.message);
 }
 
 export async function excluirTarefa(admin: any, tarefaId: string): Promise<void> {

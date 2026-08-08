@@ -39,6 +39,15 @@ test("alternarTarefa para pendente limpa concluida_em", async () => {
   assert.equal(p.concluida_em, null);
 });
 
+test("alternarTarefa lança quando o banco recusa o update", async () => {
+  // Sem isto o handler devolvia { ok: true } com a tarefa intacta no banco, e a
+  // tela riscava/removia uma tarefa que continuava aberta.
+  const admin = criarAdminFake({
+    "tarefas.update": { data: null, error: { message: "permission denied" } },
+  });
+  await assert.rejects(() => alternarTarefa(admin, "T1", true), /permission denied/);
+});
+
 test("listarTarefas filtra por lead quando pedido", async () => {
   const admin = criarAdminFake({ "tarefas.select": { data: [{ id: "T1" }], error: null } });
   const r = await listarTarefas(admin, { leadId: "L1" });
