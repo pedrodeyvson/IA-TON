@@ -1456,6 +1456,35 @@ git commit -m "fix(agente): reler pausa antes de enviar, para não atropelar res
 
 Todas devolvem `{ ok: true }` quando não têm outro retorno útil, para o cliente ter uma resposta uniforme.
 
+- [ ] **Step 0: Três ajustes no teste do invariante, herdados do review da Task 5**
+
+Esta task acrescenta 13 funções ao arquivo que o invariante vigia, então é a hora de fechar o que ficou aberto lá. Em `src/lib/crm/crm.functions.test.ts`:
+
+**(a) Contar `createServerFn` na fonte CRUA, não na já sem comentários.** Hoje `brutas` é calculado depois do `semComentarios`, e a remoção de bloco roda antes da de linha — então um `/*` solto dentro de um `//` casa com um `*/` posterior e apaga tudo entre os dois, inclusive declarações inteiras. Como a contagem também é feita na fonte mutilada, ela concorda com o sumiço e o teste passa. Guarde a fonte crua junto da tratada e conte nela:
+
+```ts
+const ARQUIVOS = acharFunctions(DIR_SRC).map((caminho) => {
+  const bruta = readFileSync(caminho, "utf8");
+  return { nome: caminho.split(/[\\/]/).pop()!, bruta, fonte: semComentarios(bruta) };
+});
+```
+
+e no teste da contagem use `bruta` para o `match` e `fonte` para os nomes. Assim qualquer deleção causada pelo próprio stripping vira divergência — que é exatamente o sinal que se quer.
+
+**(b) Devolver a mensagem por função no teste de sessão.** O `assert.deepEqual` do round anterior aponta o nome, mas não diz por que aquilo é grave. Antes do `deepEqual`, afirme por nome:
+
+```ts
+      if (!temSessao && !SEM_SESSAO_PERMITIDAS.includes(nome)) {
+        assert.fail(`${nome} não encadeia exigirSessao — endpoint público no banco (service role ignora o RLS)`);
+      }
+```
+
+mantendo o `deepEqual` depois, que é o que pega o caso inverso (uma exceção a mais ou renomeada).
+
+**(c) Corrigir "escrita" para "no banco" na mensagem.** As funções de leitura também ficam expostas sem o middleware; dizer "escrita" faz um leitor futuro achar que um GET desprotegido é inofensivo.
+
+Rode a suíte depois destes três e antes de escrever as funções novas — eles não dependem delas.
+
 - [ ] **Step 1: Implementar**
 
 Acrescenta ao final de `src/lib/crm/crm.functions.ts`:
