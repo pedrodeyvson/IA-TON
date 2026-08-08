@@ -12,7 +12,7 @@ const entradaLogin = z.object({
 
 export const entrar = createServerFn({ method: "POST" })
   .middleware([registrarErros])
-  .inputValidator((dados: unknown) => entradaLogin.parse(dados))
+  .validator((dados: unknown) => entradaLogin.parse(dados))
   .handler(async ({ data }): Promise<{ ok: boolean; erro?: string }> => {
     const { criarClienteDeSessao } = await import("./sessao.server.ts");
     const cliente = await criarClienteDeSessao();
