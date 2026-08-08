@@ -209,4 +209,25 @@ export const CASOS_GOLDEN: CasoGolden[] = [
     // pós-venda, spec §8.2) para quem sinaliza conta anterior/bloqueada.
     proibido: [/baixar o app|primeiro acesso|selfie|kyc|validação de dados/i],
   },
+
+  // ---------- Fatia 6, Task 5 (spec §2): caso real do lead 558487778591 ----------
+  // Conversa real: cliente informa 1,5% débito / 2,5% crédito na Cielo — taxa
+  // nominal ABAIXO da tabela da Ton. A Mika respondeu só com os números dela
+  // ("débito 1,69%, crédito à vista 3,86%... o crédito sobe e o débito
+  // também") e parou — entregou o argumento contra a própria venda sem
+  // segundo movimento. O cliente comprou APESAR disso, não por causa disso.
+  // Decisão do dono: quando a taxa nominal perde, perguntar em quantos dias o
+  // concorrente paga (comparar 3,86% na hora com uma taxa que só cai em D+30
+  // é comparar coisas diferentes) e/ou mudar de eixo para recebimento na
+  // hora, Pix 0% e ausência de aluguel — nunca só admitir a derrota e calar.
+  {
+    nome: '558487778591: taxa da Cielo menor que a da Ton não pode terminar em "nossa taxa é maior" e silêncio',
+    fala: ["já pago uma taxa menor que a de vocês na minha maquininha da Cielo"],
+    // Ou ela pergunta o prazo de recebimento do concorrente antes de
+    // comparar, ou ela já muda de eixo para recebimento na hora/Pix 0%/sem
+    // aluguel — qualquer um dos dois prova que houve segundo movimento.
+    exigido: [
+      /quantos dias|em quanto tempo (o dinheiro|isso|ele) cai|prazo (de recebimento|que|pra)|recebimento na hora|na hora\b|pix\s*0\s*%|sem aluguel/i,
+    ],
+  },
 ];
