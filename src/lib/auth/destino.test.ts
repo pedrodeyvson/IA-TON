@@ -41,3 +41,25 @@ test("tab, CR e LF não driblam a checagem", () => {
   assert.equal(destinoSeguro("/\r\n/evil.com"), "/inbox");
   assert.equal(destinoSeguro("/\t\t//evil.com"), "/inbox");
 });
+
+test("dot-segment não reconstrói caminho protocol-relative na saída", () => {
+  // "/.//evil.com" resolve com a origem CERTA (a base sentinela), mas a
+  // remoção de dot-segments deixa o pathname "//evil.com" — que, relido por
+  // qualquer navegação, vira https://evil.com. Validar só a entrada não
+  // basta: a saída também precisa passar pelo mesmo teste.
+  assert.equal(destinoSeguro("/.//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/././/evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/x/..//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/.///evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/a/../..//evil.com"), "/inbox");
+  assert.equal(destinoSeguro("/\t.//evil.com"), "/inbox");
+});
+
+test("caminhos internos legítimos atravessam intactos", () => {
+  // O outro lado do risco: normalização agressiva demais quebraria o retorno
+  // pós-login, que é a razão de o ?destino= existir.
+  assert.equal(destinoSeguro("/inbox/"), "/inbox/");
+  assert.equal(destinoSeguro("/tarefas"), "/tarefas");
+  assert.equal(destinoSeguro("/inbox/x#topo"), "/inbox/x#topo");
+  assert.equal(destinoSeguro("/inbox/a/b?q=1&r=2"), "/inbox/a/b?q=1&r=2");
+});
