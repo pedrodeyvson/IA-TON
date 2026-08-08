@@ -18,7 +18,9 @@ export const listarConversasDoInbox = createServerFn({ method: "GET" })
   .handler(async (): Promise<any[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { listarConversas } = await import("./conversas.server.ts");
-    return listarConversas(supabaseAdmin, 50);
+    const { anexarFotosAssinadas } = await import("./fotos.ts");
+    const linhas = await listarConversas(supabaseAdmin, 50);
+    return anexarFotosAssinadas(supabaseAdmin, linhas);
   });
 
 export const listarMensagensDaConversa = createServerFn({ method: "GET" })

@@ -342,6 +342,7 @@ export async function listarConversas(admin: any, limite = 50): Promise<any[]> {
     .select(
       "id, nome, telefone, estagio, precisa_atencao, nao_perturbe, nao_lidas," +
         " ultima_mensagem_em, ultima_mensagem_preview, ultima_mensagem_direcao," +
+        " foto_path, maquina_interesse, origem, ad_title," +
         " conversas(id, pausada_pela_ia, followup_toque, ciclo_pausado_ate)",
     )
     // `nullsFirst: false` é obrigatório: no Postgres, ORDER BY ... DESC é

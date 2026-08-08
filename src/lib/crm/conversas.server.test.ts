@@ -328,3 +328,27 @@ test("marcarLida zera o contador de não lidas do lead", async () => {
   assert.equal(chamada.payload.nao_lidas, 0);
   assert.deepEqual(chamada.filtros, [["id", "L1"]]);
 });
+
+// ===================== Fatia 5, Task 6: foto e tags derivadas =====================
+
+test("listarConversas devolve as colunas de perfil e atribuição do lead", async () => {
+  const admin = criarAdminFake({
+    "leads.select": {
+      data: [
+        {
+          id: "L1", nome: "Ana", telefone: "5511987654321", estagio: "qualificando",
+          foto_path: "L1.jpg", maquina_interesse: "T3 Smart", origem: "anuncio", ad_title: "Campanha Agosto",
+          conversas: { id: "C1", pausada_pela_ia: false },
+        },
+      ],
+      error: null,
+    },
+  });
+  const { listarConversas } = await import("./conversas.server.ts");
+  const r = await listarConversas(admin, 50);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].foto_path, "L1.jpg");
+  assert.equal(r[0].maquina_interesse, "T3 Smart");
+  assert.equal(r[0].origem, "anuncio");
+  assert.equal(r[0].ad_title, "Campanha Agosto");
+});

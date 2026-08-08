@@ -69,6 +69,13 @@ export function ListaConversas() {
                 }`}
               >
                 <div className="flex items-center gap-2">
+                  {lead.foto_url ? (
+                    <img src={lead.foto_url} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-painel)] text-xs">
+                      {(titulo?.[0] ?? "?").toUpperCase()}
+                    </div>
+                  )}
                   <span className="truncate font-medium">{titulo}</span>
                   {lead.precisa_atencao && <span title="Precisa de atenção">⚠️</span>}
                   {lead.nao_perturbe && <span title="Não perturbe">🔇</span>}
@@ -81,10 +88,16 @@ export function ListaConversas() {
                 <p className="truncate text-sm text-[var(--color-suave)]">
                   {lead.ultima_mensagem_preview ?? "—"}
                 </p>
-                <div className="flex gap-2 text-xs text-[var(--color-suave)]">
+                <div className="flex flex-wrap gap-2 text-xs text-[var(--color-suave)]">
                   <span>{rotuloDeEstagio(lead.estagio ?? "")}</span>
                   <span>·</span>
                   <span>{assumida ? "você assumiu" : "IA respondendo"}</span>
+                  {lead.maquina_interesse && (
+                    <span className="rounded bg-[var(--color-painel)] px-1.5">{lead.maquina_interesse}</span>
+                  )}
+                  {lead.origem === "anuncio" && (
+                    <span className="rounded bg-[var(--color-painel)] px-1.5">📣 {lead.ad_title || "Meta Ads"}</span>
+                  )}
                   {lead.ultima_mensagem_em && (
                     <time className="ml-auto shrink-0" dateTime={lead.ultima_mensagem_em}>
                       {rotuloDeHorario(lead.ultima_mensagem_em)}
