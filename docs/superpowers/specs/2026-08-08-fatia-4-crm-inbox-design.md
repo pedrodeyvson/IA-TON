@@ -69,7 +69,7 @@ server functions.
 ```
 src/lib/auth/
   sessao.server.ts       client Supabase SSR sobre cookie httpOnly; obterUsuario()
-  middleware.server.ts   exigirSessao, registrarErros
+  middleware.ts          exigirSessao, registrarErros (ver nota abaixo)
   auth.functions.ts      entrar, sair
 src/lib/crm/
   crm.functions.ts       as server functions do CRM
@@ -101,12 +101,19 @@ apenas decodifica o JWT presente no cookie, então um cookie forjado passaria; o
 `getUser()` valida contra o servidor do Supabase. A autorização inteira do app depende
 desta escolha.
 
-Dois middlewares:
+Dois middlewares, em `src/lib/auth/middleware.ts`:
 
 - **`exigirSessao`** — chama `obterUsuario()`, responde 401 se não houver, injeta o
   usuário no contexto.
 - **`registrarErros`** — loga a exceção com o nome da função e repropaga (o
   `logServerFnErrors` do CPI).
+
+⚠️ **Por que `middleware.ts` e não `middleware.server.ts`:** middlewares são
+referenciados fora do handler, no encadeamento `.middleware([...])`, então o módulo entra
+no bundle do cliente — só o corpo do `.server()` é removido. O sufixo `.server.ts` na
+convenção deste projeto significa "nunca chega ao cliente", e usá-lo aqui seria um nome
+mentindo sobre o que o arquivo faz. Consequência prática: dentro do `.server()`, o acesso
+a `sessao.server.ts` é por `await import()`, igual aos handlers.
 
 **Por que o middleware é a fronteira de segurança:** as server functions usam o client de
 service role, que passa por cima do RLS. Uma função que esqueça `.middleware([exigirSessao])`
