@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiPublicUazapiRouteImport } from './routes/api/public/uazapi'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
@@ -25,27 +31,31 @@ const ApiPublicUazapiRoute = ApiPublicUazapiRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/api/public/uazapi': typeof ApiPublicUazapiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/public/uazapi'
+  fullPaths: '/' | '/login' | '/api/public/uazapi'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/public/uazapi'
-  id: '__root__' | '/' | '/api/public/uazapi'
+  to: '/' | '/login' | '/api/public/uazapi'
+  id: '__root__' | '/' | '/login' | '/api/public/uazapi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
   ApiPublicUazapiRoute: typeof ApiPublicUazapiRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/uazapi': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
   ApiPublicUazapiRoute: ApiPublicUazapiRoute,
 }
 export const routeTree = rootRouteImport
