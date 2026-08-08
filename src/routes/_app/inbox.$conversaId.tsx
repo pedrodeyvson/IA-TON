@@ -38,9 +38,15 @@ function TelaConversa() {
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
-  // Enquanto carrega (ou se a conversa não existir), o lado conservador é
-  // "a IA não está ativa": nunca afirma controle que ainda não verificou.
-  const iaAtiva = estadoConversa ? !estadoConversa.pausadaPelaIa : false;
+  const carregandoEstado = estadoConversa === undefined;
+  // Enquanto não sabemos, assume IA ativa — e não o contrário. O estado
+  // normal de uma conversa é a IA respondendo; pausada é a exceção, criada
+  // por uma ação explícita do operador. Errar para "ativa" só mostra o
+  // aviso de assumir a mais, o que é inofensivo (responder pausa a IA de
+  // qualquer forma). Errar para "assumida" esconderia o aviso justo na
+  // janela em que o operador digita a primeira resposta — quando ele mais
+  // precisa dele.
+  const iaAtiva = estadoConversa ? !estadoConversa.pausadaPelaIa : true;
 
   const alternarIa = useMutation({
     mutationFn: () =>
@@ -60,11 +66,15 @@ function TelaConversa() {
           <span className="ml-auto text-sm text-[var(--color-suave)]">
             {iaAtiva ? "IA respondendo" : "você assumiu"}
           </span>
+          {/* O botão fica fora do ar até o estado chegar: ele age sobre o
+              controle da conversa, e agir a partir de um palpite é diferente
+              de exibir um aviso a mais. */}
           <button
             onClick={() => alternarIa.mutate()}
-            className="rounded bg-[var(--color-painel)] px-3 py-1 text-sm"
+            disabled={carregandoEstado}
+            className="rounded bg-[var(--color-painel)] px-3 py-1 text-sm disabled:opacity-50"
           >
-            {iaAtiva ? "Assumir" : "Devolver para a IA"}
+            {carregandoEstado ? "…" : iaAtiva ? "Assumir" : "Devolver para a IA"}
           </button>
         </header>
 
