@@ -129,6 +129,23 @@ que são colunas de kanban configuráveis por organização, com
 configuráveis; este projeto é de uso individual e tem funil FIXO de 8 estágios
 (`src/lib/crm/estagios.ts`), com mapeamento fixo para os eventos CAPI
 (`capi.constants.ts:60`). Copiar `custom_stages` quebraria esse mapeamento.
-Antes de implementar, confirmar com o dono se ele quer tags LIVRES (rótulo que
-ele digita) ou só os marcadores derivados que já existem (estágio, máquina,
-origem) — são coisas diferentes e o pedido comporta as duas leituras.
+
+## Decisões finais (09/08/2026, antes do plano)
+
+Confirmado com o dono, resolvendo as duas leituras possíveis do pedido:
+
+- **Tags: só marcadores DERIVADOS** — estágio, máquina de interesse e origem
+  Meta Ads, o que o sistema já sabe. Nada de campo de texto livre por lead:
+  sem tabela nova, sem UI de edição de tag, sem risco de virar bagunça.
+- **Sem board kanban novo.** "Kanban" nas mensagens do dono significava as
+  tags/marcadores dentro do inbox e do painel que já existem — não uma tela
+  nova com colunas arrastáveis por estágio. Se um board visual vier a ser
+  pedido, é fatia própria, futura.
+
+Escopo final da Fatia 5, cobrindo os 4 itens originais + item 6 do adendo (7 já
+estava pronto antes desta fatia — `Bolha.tsx` já rotula "Cliente"/"Mika"/"Você"):
+
+1. Nome e foto reais do WhatsApp (`perfil.server.ts`, bucket privado + URL assinada).
+2. Tags derivadas na linha do inbox: estágio (já existe) + máquina de interesse + origem Meta Ads.
+3. Payload e resposta de cada disparo CAPI visíveis no painel do lead (`eventos_capi.payload`/`.resposta` novos).
+4. Horário por bolha na conversa (reusa `rotuloDeHorario`).
