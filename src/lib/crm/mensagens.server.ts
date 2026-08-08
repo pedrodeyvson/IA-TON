@@ -1,4 +1,4 @@
-// Histórico e envio de texto. Usado pelo agente (remetente "ia") e, na Fatia 5,
+// Histórico e envio de texto. Usado pelo agente (remetente "ia") e, na Fatia 4,
 // pelo Pedro respondendo no inbox (remetente "humano") — uma implementação só.
 
 export async function listarMensagens(
