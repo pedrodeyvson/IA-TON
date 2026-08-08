@@ -5,7 +5,7 @@
 // NUNCA lança. Quem chama é o worker, e uma exceção aqui deixaria o lock da
 // conversa preso. Toda falha volta como { status: "erro", motivo }.
 import { enviarTextoDoCrm, listarMensagens } from "../crm/mensagens.server.ts";
-import { moverEstagio } from "../crm/leads.server.ts";
+import { marcarPrecisaAtencao, moverEstagio } from "../crm/leads.server.ts";
 import { agendarToque, pausarCiclo, registrarToqueEnviado } from "../crm/conversas.server.ts";
 import { registrarNaoPerturbe } from "../crm/nao-perturbe.server.ts";
 import { planejarProximoToque } from "../crm/regua.ts";
@@ -192,10 +192,23 @@ async function fecharToque(
     // reagendou:true aqui faria o worker acreditar que a régua já está
     // cuidada e pular a própria limpeza, deixando a conversa sem
     // responder_em e sem chance de retomar o ciclo depois. Sem reagendou, o
-    // caso volta para o caminho padrão do worker (o mesmo que uma resposta
-    // comum sem toque agendado).
+    // caminho padrão do worker é chamar limparAgendamento — que apaga
+    // ativamente responder_em/motivo_agendamento/processando_em. Isso
+    // deixaria a régua órfã em silêncio: nada além de uma nova mensagem do
+    // próprio lead reabriria o fluxo. Por isso marcamos precisa_atencao,
+    // espelhando o mesmo par de motivos (nao_perturbe e
+    // erro_ao_verificar_optout) tratado igual em executarRegistrarLink
+    // (tools.ts) — não dá para distinguir "parou de verdade" de "não sei se
+    // parou", então os dois pedem os olhos do Pedro. Não pausamos a IA
+    // aqui: a mensagem deste toque já foi enviada, não há risco imediato de
+    // nova mensagem indevida — o que falta é só visibilidade.
     const agendamento = await agendarToque(admin, ctx.conversaId, plano.quandoIso);
     if (!agendamento.agendado) {
+      await marcarPrecisaAtencao(
+        admin,
+        ctx.leadId,
+        `toque seguinte não agendado: ${agendamento.motivo}`,
+      );
       return {
         status: "respondeu",
         motivo: `toque seguinte não agendado: ${agendamento.motivo}`,

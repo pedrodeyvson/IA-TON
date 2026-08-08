@@ -249,6 +249,111 @@ test("depois de enviar o toque, o próximo é agendado e o resultado avisa", asy
   assert.ok(updates.some((u) => u.payload.motivo_agendamento === "followup"), "agenda o toque 3");
 });
 
+// As duas próximas espelham "registrar_link_enviado não manda o link quando..."
+// em tools.test.ts: agendarToque falha fechado pelos mesmos dois motivos
+// (nao_perturbe confirmado ou falha ao confirmar), e os dois são tratados
+// igual — não dá para distinguir "parou de verdade" de "não sei se parou".
+// A diferença aqui é que a mensagem do toque JÁ foi enviada (o turno só
+// descobre a recusa depois), então o turno não pode fingir que nada
+// aconteceu: marca precisa_atencao para o Pedro ver que a régua ficou órfã,
+// e não devolve reagendou (o worker não pode acreditar que o próximo toque
+// está agendado quando ele não está).
+test("toque seguinte recusado por não-perturbe marca atenção e não reagenda", async () => {
+  const admin = adminDeConversa({
+    "conversas.select": {
+      data: {
+        id: "C1", lead_id: "L1", pausada_pela_ia: false,
+        followup_toque: 1, ciclo_pausado_ate: null,
+        // mesma chamada de tabela serve o select inicial do turno (usa só os
+        // campos de cima) e o motivoParaRecusarAgendamento de dentro de
+        // agendarToque (usa leads.nao_perturbe) — o fake do supabase não
+        // distingue as duas consultas por coluna selecionada.
+        leads: { nao_perturbe: true },
+      },
+      error: null,
+    },
+    "leads.select": {
+      data: {
+        id: "L1", telefone: "5511987654321", estagio: "acompanhamento",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 2 * 86_400_000).toISOString(),
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "ia", tipo: "texto", conteudo: "oi", timestamp_ms: AGORA - 2 * 86_400_000 }],
+      error: null,
+    },
+  });
+  let enviou = false;
+
+  const r = await executarTurno(admin, TOQUE, {
+    chamar: async () => ({ texto: "e aí, o que pesou?", toolCalls: [] }),
+    enviar: async () => { enviou = true; return { messageid: "WA1" }; },
+  });
+
+  assert.equal(enviou, true, "a mensagem do toque já saiu antes de a régua ser checada");
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, undefined, "não existe agendamento nenhum para o worker preservar");
+
+  const leadAtualizado = admin.chamadas.find((c) => c.tabela === "leads" && c.operacao === "update");
+  assert.equal(leadAtualizado?.payload.precisa_atencao, true, "o Pedro precisa saber que a régua ficou órfã");
+
+  const evento = admin.chamadas.find((c) => c.tabela === "eventos_lead" && c.operacao === "insert");
+  assert.equal(evento?.payload.tipo_evento, "escalado");
+});
+
+test("toque seguinte recusado por falha ao confirmar opt-out marca atenção e não reagenda", async () => {
+  let chamadasConversa = 0;
+  const admin = adminDeConversa({
+    "conversas.select": () => {
+      chamadasConversa++;
+      // 1ª chamada: leitura inicial do turno, tem que ter sucesso para o
+      // turno continuar até enviar a mensagem do toque.
+      if (chamadasConversa === 1) {
+        return {
+          data: {
+            id: "C1", lead_id: "L1", pausada_pela_ia: false,
+            followup_toque: 1, ciclo_pausado_ate: null,
+          },
+          error: null,
+        };
+      }
+      // 2ª chamada: motivoParaRecusarAgendamento, dentro de agendarToque —
+      // a consulta em si falha (rede, Postgres).
+      return { data: null, error: { message: "conexão com o banco caiu" } };
+    },
+    "leads.select": {
+      data: {
+        id: "L1", telefone: "5511987654321", estagio: "acompanhamento",
+        precisa_atencao: false, nao_perturbe: false,
+        link_enviado_em: new Date(AGORA - 2 * 86_400_000).toISOString(),
+      },
+      error: null,
+    },
+    "mensagens.select": {
+      data: [{ remetente: "ia", tipo: "texto", conteudo: "oi", timestamp_ms: AGORA - 2 * 86_400_000 }],
+      error: null,
+    },
+  });
+  let enviou = false;
+
+  const r = await executarTurno(admin, TOQUE, {
+    chamar: async () => ({ texto: "e aí, o que pesou?", toolCalls: [] }),
+    enviar: async () => { enviou = true; return { messageid: "WA1" }; },
+  });
+
+  assert.equal(enviou, true, "a mensagem do toque já saiu antes de a régua ser checada");
+  assert.equal(r.status, "respondeu");
+  assert.equal(r.reagendou, undefined, "não existe agendamento nenhum para o worker preservar");
+
+  const leadAtualizado = admin.chamadas.find((c) => c.tabela === "leads" && c.operacao === "update");
+  assert.equal(leadAtualizado?.payload.precisa_atencao, true, "o Pedro precisa saber que a régua ficou órfã");
+
+  const evento = admin.chamadas.find((c) => c.tabela === "eventos_lead" && c.operacao === "insert");
+  assert.equal(evento?.payload.tipo_evento, "escalado");
+});
+
 test("o 4º toque encerra o ciclo com pausa de 30 dias", async () => {
   const admin = adminDeConversa({
     "conversas.select": {
