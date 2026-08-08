@@ -192,6 +192,32 @@ export async function marcarLida(admin: any, leadId: string): Promise<void> {
   await admin.from("leads").update({ nao_lidas: 0 }).eq("id", leadId);
 }
 
+/**
+ * Estado mínimo de UMA conversa, para a tela de conversa individual.
+ *
+ * `listarConversas` não serve pra isso: ela é limitada às 50 leads mais
+ * recentes, e uma conversa fora dessa janela devolveria `undefined` no
+ * front — que um `!undefined?.pausada_pela_ia` interpretaria como "IA
+ * ativa", mentindo pro operador exatamente sobre quem está no controle.
+ *
+ * `null` é "a conversa não existe"; erro de leitura LANÇA em vez de virar
+ * `null` — confundir os dois deixaria a tela afirmar um estado de controle
+ * que nunca chegou a verificar.
+ */
+export async function obterEstadoConversa(
+  admin: any,
+  conversaId: string,
+): Promise<{ pausadaPelaIa: boolean } | null> {
+  const { data, error } = await admin
+    .from("conversas")
+    .select("id, pausada_pela_ia")
+    .eq("id", conversaId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return { pausadaPelaIa: Boolean(data.pausada_pela_ia) };
+}
+
 /** Lista para o inbox da Fatia 4: lead + estado da conversa, mais recente primeiro. */
 export async function listarConversas(admin: any, limite = 50): Promise<any[]> {
   const { data } = await admin

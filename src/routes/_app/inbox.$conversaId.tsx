@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { devolverParaIa, obterLeadDoCrm, pausarIaNaConversa } from "@/lib/crm/crm.functions";
+import {
+  devolverParaIa,
+  obterEstadoDaConversa,
+  obterLeadDoCrm,
+  pausarIaNaConversa,
+} from "@/lib/crm/crm.functions";
 import { CaixaDeResposta } from "@/components/crm/CaixaDeResposta";
 import { Historico } from "@/components/crm/Historico";
 import { PainelLead } from "@/components/crm/PainelLead";
-import { useConversas } from "@/components/crm/useConversas";
 
 export const Route = createFileRoute("/_app/inbox/$conversaId")({
   validateSearch: (busca: Record<string, unknown>) => ({
@@ -24,18 +28,27 @@ function TelaConversa() {
     enabled: Boolean(leadId),
   });
 
-  // O estado da IA vive na conversa, que já vem na listagem do inbox —
-  // reaproveita o cache do hook em vez de uma consulta só para isso.
-  const { data: conversas = [] } = useConversas();
-  const conversa = conversas
-    .flatMap((l: any) => l.conversas ?? [])
-    .find((c: any) => c.id === conversaId);
-  const iaAtiva = !conversa?.pausada_pela_ia;
+  // Consulta dedicada — a listagem do inbox (useConversas) só cobre as 50
+  // conversas mais recentes; fora dessa janela ela devolveria `undefined`,
+  // e `!undefined?.pausada_pela_ia` vira `true`, afirmando "IA respondendo"
+  // pra uma conversa que o operador já assumiu.
+  const { data: estadoConversa } = useQuery({
+    queryKey: ["conversa", conversaId],
+    queryFn: () => obterEstadoDaConversa({ data: { conversaId } }),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
+  // Enquanto carrega (ou se a conversa não existir), o lado conservador é
+  // "a IA não está ativa": nunca afirma controle que ainda não verificou.
+  const iaAtiva = estadoConversa ? !estadoConversa.pausadaPelaIa : false;
 
   const alternarIa = useMutation({
     mutationFn: () =>
       iaAtiva ? pausarIaNaConversa({ data: { conversaId } }) : devolverParaIa({ data: { conversaId } }),
-    onSuccess: () => clienteQuery.invalidateQueries({ queryKey: ["conversas"] }),
+    onSuccess: () => {
+      clienteQuery.invalidateQueries({ queryKey: ["conversa", conversaId] });
+      clienteQuery.invalidateQueries({ queryKey: ["conversas"] });
+    },
   });
 
   return (

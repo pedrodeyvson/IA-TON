@@ -39,6 +39,19 @@ export const listarMensagensDaConversa = createServerFn({ method: "GET" })
     return listarMensagens(supabaseAdmin, data.conversaId, data.limite);
   });
 
+/**
+ * Estado de UMA conversa (se a IA está pausada), para a tela individual —
+ * não a listagem do inbox, que só cobre as 50 conversas mais recentes.
+ */
+export const obterEstadoDaConversa = createServerFn({ method: "GET" })
+  .middleware([registrarErros, exigirSessao])
+  .validator((dados: unknown) => porConversa.parse(dados))
+  .handler(async ({ data }): Promise<{ pausadaPelaIa: boolean } | null> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { obterEstadoConversa } = await import("./conversas.server.ts");
+    return obterEstadoConversa(supabaseAdmin, data.conversaId);
+  });
+
 export const obterLeadDoCrm = createServerFn({ method: "GET" })
   .middleware([registrarErros, exigirSessao])
   .validator((dados: unknown) => porLead.parse(dados))

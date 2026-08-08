@@ -9,6 +9,10 @@ const FUNDO: Record<string, string> = {
   humano: "var(--color-humano)",
 };
 
+/** Tipos com bolha própria abaixo. Qualquer outro tipo com mídia (o próximo
+ *  que o provedor inventar) cai no fallback genérico, em vez de sumir. */
+const TIPOS_COM_RENDER_ESPECIFICO = new Set(["imagem", "audio", "documento", "video", "sticker"]);
+
 export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id: string) => void }) {
   const daCasa = mensagem.remetente !== "lead";
   const temMidia = Boolean(mensagem.media_path);
@@ -51,6 +55,23 @@ export function Bolha({ mensagem, aoReenviar }: { mensagem: any; aoReenviar: (id
         {mensagem.tipo === "documento" && midia?.url && (
           <a href={midia.url} target="_blank" rel="noreferrer" className="underline">
             Abrir documento
+          </a>
+        )}
+
+        {mensagem.tipo === "video" && midia?.url && (
+          <video controls src={midia.url} className="max-h-64 rounded" />
+        )}
+
+        {mensagem.tipo === "sticker" && midia?.url && (
+          <img src={midia.url} alt="Figurinha" className="max-h-40 rounded" />
+        )}
+
+        {/* Defesa contra o próximo tipo de mídia que a UAZAPI mandar: sem
+            isto, ele chegaria com URL assinada buscada e descartada, e a
+            bolha renderizaria vazia — mensagem invisível pro operador. */}
+        {temMidia && !TIPOS_COM_RENDER_ESPECIFICO.has(mensagem.tipo) && midia?.url && (
+          <a href={midia.url} target="_blank" rel="noreferrer" className="underline">
+            Abrir arquivo
           </a>
         )}
 
